@@ -1,0 +1,4 @@
+kernel {
+ noautogroup
+ nmi_watchdog=1
+}

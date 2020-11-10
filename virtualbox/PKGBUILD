@@ -1,0 +1,76 @@
+# Based on the file created for Arch Linux by:
+# Ionut Biru <ibiru@archlinux.org>
+# Sébastien Luttringer <seblu@aur.archlinux.org>
+
+# Maintainer: Philip Müller <philm@manjaro.org>
+# Maintainer: Bernhard Landauer <oberon@manjaro.org>
+# Contributor: Helmut Stult <helmut[at]manjaro[dot]org>
+# torvic9
+
+# enable/disable module signing
+_signing=0
+# enable/disable clang
+_clang=0
+# custom clang path
+# export PATH=/opt/clang11/bin:$PATH
+
+_linuxprefix=linux510-vd
+_extramodules=extramodules-linux510-vd
+
+pkgbase=$_linuxprefix-virtualbox-modules
+pkgname=("$_linuxprefix-virtualbox-host-modules")
+pkgver=6.1.16
+_pkgver="${pkgver}_OSE"
+pkgrel=1
+arch=('x86_64')
+url='http://virtualbox.org'
+license=('GPL')
+depends=("$_linuxprefix")
+groups=("$_linuxprefix-extramodules")
+makedepends=("virtualbox-host-dkms>=$pkgver"
+             'dkms'
+             "$_linuxprefix" "$_linuxprefix-headers")
+
+source=()
+
+prepare() {
+  _kernver="$(cat /usr/lib/modules/$_extramodules/version)"
+  cp /usr/src/vboxhost-${_pkgver}/dkms.conf $srcdir/dkms.conf
+  if [[ $_clang -eq 1 ]]; then
+	LLVM_UTILS="CC=clang CXX=clang++ LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJSIZE=llvm-size STRIP=llvm-strip"
+	echo "MAKE[0]=\"make ${LLVM_UTILS} KERNELRELEASE=${_kernver}\"" >> $srcdir/dkms.conf
+  fi
+}
+
+build() {
+  _kernver="$(cat /usr/lib/modules/$_extramodules/version)"
+  # build host modules
+  fakeroot dkms build -c $srcdir/dkms.conf --dkmstree "$srcdir" -m vboxhost/${_pkgver} -k "${_kernver}"
+}
+
+package_linux510-vd-virtualbox-host-modules(){
+  pkgdesc='VirtualBox host modules for the vd kernel'
+  replaces=("$_linuxprefix-virtualbox-modules")
+  conflicts=("$_linuxprefix-virtualbox-modules")
+  provides=('VIRTUALBOX-HOST-MODULES')
+  install=virtualbox-host-modules.install
+
+  _kernver="$(cat /usr/lib/modules/$_extramodules/version)"
+
+  install -dm755 "$pkgdir/usr/lib/modules/$_extramodules"
+  cd "vboxhost/$_pkgver/$_kernver/$CARCH/module"
+  unxz *.ko.xz
+  install -m644 * "$pkgdir/usr/lib/modules/$_extramodules"
+  if [[ ${_signing} -eq 1 ]] ; then
+  	echo -e "Signing modules with kernel key...\n"
+  	for i in vbox{drv,netflt,netadp}.ko; do
+  		sign-file59.sh "${pkgdir}/usr/lib/modules/${_extramodules}/$i"
+  	done
+  fi
+  find "$pkgdir" -name '*.ko' -exec xz --lzma2=preset=4,dict=2MiB {} +
+  sed -i -e "s/EXTRAMODULES='.*'/EXTRAMODULES='$_extramodules'/" "$startdir/virtualbox-host-modules.install"
+
+  # systemd module loading
+  printf '%s\n' vboxdrv vboxnetadp vboxnetflt |
+    install -D -m0644 /dev/stdin "$pkgdir/usr/lib/modules-load.d/$pkgname.conf"
+}

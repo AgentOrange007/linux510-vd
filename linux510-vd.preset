@@ -1,0 +1,14 @@
+# mkinitcpio preset file for the 'linux510-vd' package
+
+ALL_config="/etc/mkinitcpio.conf"
+ALL_kver="/boot/vmlinuz-linux510-vd"
+
+PRESETS=('default')
+
+#default_config="/etc/mkinitcpio.conf"
+default_image="/boot/initramfs-linux510-vd.img"
+default_options="-z zstd"
+
+#fallback_config="/etc/mkinitcpio.conf"
+fallback_image="/boot/initramfs-linux510-vd-fallback.img"
+fallback_options="-S autodetect"

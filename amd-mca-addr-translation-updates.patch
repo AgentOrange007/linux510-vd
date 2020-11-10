@@ -1,0 +1,1335 @@
+From patchwork Thu Sep  3 20:01:37 2020
+From: Yazen Ghannam <Yazen.Ghannam@amd.com>
+To: linux-edac@vger.kernel.org
+Cc: Yazen Ghannam <Yazen.Ghannam@amd.com>,
+        linux-kernel@vger.kernel.org, tony.luck@intel.com, x86@kernel.org,
+        Smita.KoralahalliChannabasappa@amd.com
+Subject: [PATCH v2 1/8] x86/CPU/AMD: Save NodeId on AMD-based systems
+Date: Thu,  3 Sep 2020 20:01:37 +0000
+
+From: Yazen Ghannam <yazen.ghannam@amd.com>
+
+AMD systems provide a "NodeId" value that represents a global ID
+indicating to which "Node" a logical CPU belongs. The "Node" is a
+physical structure equivalent to a Die, and it should not be confused
+with logical structures like NUMA node. Logical nodes can be adjusted
+based on firmware or other settings whereas the physical nodes/dies are
+fixed based on hardware topology.
+
+The NodeId value can be used when a physical ID is needed by software.
+
+Save the AMD NodeId to struct cpuinfo_x86. Use the value from CPUID or
+MSR as appropriate. Default to phys_proc_id otherwise. Do so for both
+AMD and Hygon systems.
+
+Drop the node_id parameter from cacheinfo_*_init_llc_id() as it is no
+longer needed.
+
+Signed-off-by: Yazen Ghannam <yazen.ghannam@amd.com>
+---
+Link:
+https://lkml.kernel.org/r/20200814191449.183998-2-Yazen.Ghannam@amd.com
+
+v1 -> v2:
+* New patch based on review comment to save value to struct cpuinfo_x86.
+
+ arch/x86/include/asm/cacheinfo.h |  4 ++--
+ arch/x86/include/asm/processor.h |  1 +
+ arch/x86/kernel/cpu/amd.c        | 11 +++++------
+ arch/x86/kernel/cpu/cacheinfo.c  |  6 +++---
+ arch/x86/kernel/cpu/hygon.c      | 11 +++++------
+ 5 files changed, 16 insertions(+), 17 deletions(-)
+
+diff --git a/arch/x86/include/asm/cacheinfo.h b/arch/x86/include/asm/cacheinfo.h
+index 86b63c7feab7..86b2e0dcc4bf 100644
+--- a/arch/x86/include/asm/cacheinfo.h
++++ b/arch/x86/include/asm/cacheinfo.h
+@@ -2,7 +2,7 @@
+ #ifndef _ASM_X86_CACHEINFO_H
+ #define _ASM_X86_CACHEINFO_H
+ 
+-void cacheinfo_amd_init_llc_id(struct cpuinfo_x86 *c, int cpu, u8 node_id);
+-void cacheinfo_hygon_init_llc_id(struct cpuinfo_x86 *c, int cpu, u8 node_id);
++void cacheinfo_amd_init_llc_id(struct cpuinfo_x86 *c, int cpu);
++void cacheinfo_hygon_init_llc_id(struct cpuinfo_x86 *c, int cpu);
+ 
+ #endif /* _ASM_X86_CACHEINFO_H */
+diff --git a/arch/x86/include/asm/processor.h b/arch/x86/include/asm/processor.h
+index 97143d87994c..a776b7886ec0 100644
+--- a/arch/x86/include/asm/processor.h
++++ b/arch/x86/include/asm/processor.h
+@@ -95,6 +95,7 @@ struct cpuinfo_x86 {
+ 	/* CPUID returned core id bits: */
+ 	__u8			x86_coreid_bits;
+ 	__u8			cu_id;
++	__u8			node_id;
+ 	/* Max extended CPUID function supported: */
+ 	__u32			extended_cpuid_level;
+ 	/* Maximum supported CPUID level, -1=no CPUID: */
+diff --git a/arch/x86/kernel/cpu/amd.c b/arch/x86/kernel/cpu/amd.c
+index dcc3d943c68f..5eef4cc1e5b7 100644
+--- a/arch/x86/kernel/cpu/amd.c
++++ b/arch/x86/kernel/cpu/amd.c
+@@ -330,7 +330,6 @@ static void legacy_fixup_core_id(struct cpuinfo_x86 *c)
+  */
+ static void amd_get_topology(struct cpuinfo_x86 *c)
+ {
+-	u8 node_id;
+ 	int cpu = smp_processor_id();
+ 
+ 	/* get information required for multi-node processors */
+@@ -340,7 +339,7 @@ static void amd_get_topology(struct cpuinfo_x86 *c)
+ 
+ 		cpuid(0x8000001e, &eax, &ebx, &ecx, &edx);
+ 
+-		node_id  = ecx & 0xff;
++		c->node_id  = ecx & 0xff;
+ 
+ 		if (c->x86 == 0x15)
+ 			c->cu_id = ebx & 0xff;
+@@ -360,15 +359,15 @@ static void amd_get_topology(struct cpuinfo_x86 *c)
+ 		if (!err)
+ 			c->x86_coreid_bits = get_count_order(c->x86_max_cores);
+ 
+-		cacheinfo_amd_init_llc_id(c, cpu, node_id);
++		cacheinfo_amd_init_llc_id(c, cpu);
+ 
+ 	} else if (cpu_has(c, X86_FEATURE_NODEID_MSR)) {
+ 		u64 value;
+ 
+ 		rdmsrl(MSR_FAM10H_NODE_ID, value);
+-		node_id = value & 7;
++		c->node_id = value & 7;
+ 
+-		per_cpu(cpu_llc_id, cpu) = node_id;
++		per_cpu(cpu_llc_id, cpu) = c->node_id;
+ 	} else
+ 		return;
+ 
+@@ -393,7 +392,7 @@ static void amd_detect_cmp(struct cpuinfo_x86 *c)
+ 	/* Convert the initial APIC ID into the socket ID */
+ 	c->phys_proc_id = c->initial_apicid >> bits;
+ 	/* use socket ID also for last level cache */
+-	per_cpu(cpu_llc_id, cpu) = c->phys_proc_id;
++	per_cpu(cpu_llc_id, cpu) = c->node_id = c->phys_proc_id;
+ }
+ 
+ static void amd_detect_ppin(struct cpuinfo_x86 *c)
+diff --git a/arch/x86/kernel/cpu/cacheinfo.c b/arch/x86/kernel/cpu/cacheinfo.c
+index 57074cf3ad7c..81dfddae4470 100644
+--- a/arch/x86/kernel/cpu/cacheinfo.c
++++ b/arch/x86/kernel/cpu/cacheinfo.c
+@@ -646,7 +646,7 @@ static int find_num_cache_leaves(struct cpuinfo_x86 *c)
+ 	return i;
+ }
+ 
+-void cacheinfo_amd_init_llc_id(struct cpuinfo_x86 *c, int cpu, u8 node_id)
++void cacheinfo_amd_init_llc_id(struct cpuinfo_x86 *c, int cpu)
+ {
+ 	/*
+ 	 * We may have multiple LLCs if L3 caches exist, so check if we
+@@ -657,7 +657,7 @@ void cacheinfo_amd_init_llc_id(struct cpuinfo_x86 *c, int cpu, u8 node_id)
+ 
+ 	if (c->x86 < 0x17) {
+ 		/* LLC is at the node level. */
+-		per_cpu(cpu_llc_id, cpu) = node_id;
++		per_cpu(cpu_llc_id, cpu) = c->node_id;
+ 	} else if (c->x86 == 0x17 && c->x86_model <= 0x1F) {
+ 		/*
+ 		 * LLC is at the core complex level.
+@@ -684,7 +684,7 @@ void cacheinfo_amd_init_llc_id(struct cpuinfo_x86 *c, int cpu, u8 node_id)
+ 	}
+ }
+ 
+-void cacheinfo_hygon_init_llc_id(struct cpuinfo_x86 *c, int cpu, u8 node_id)
++void cacheinfo_hygon_init_llc_id(struct cpuinfo_x86 *c, int cpu)
+ {
+ 	/*
+ 	 * We may have multiple LLCs if L3 caches exist, so check if we
+diff --git a/arch/x86/kernel/cpu/hygon.c b/arch/x86/kernel/cpu/hygon.c
+index ac6c30e5801d..604b0315211a 100644
+--- a/arch/x86/kernel/cpu/hygon.c
++++ b/arch/x86/kernel/cpu/hygon.c
+@@ -65,7 +65,6 @@ static void hygon_get_topology_early(struct cpuinfo_x86 *c)
+  */
+ static void hygon_get_topology(struct cpuinfo_x86 *c)
+ {
+-	u8 node_id;
+ 	int cpu = smp_processor_id();
+ 
+ 	/* get information required for multi-node processors */
+@@ -75,7 +74,7 @@ static void hygon_get_topology(struct cpuinfo_x86 *c)
+ 
+ 		cpuid(0x8000001e, &eax, &ebx, &ecx, &edx);
+ 
+-		node_id  = ecx & 0xff;
++		c->node_id  = ecx & 0xff;
+ 
+ 		c->cpu_core_id = ebx & 0xff;
+ 
+@@ -93,14 +92,14 @@ static void hygon_get_topology(struct cpuinfo_x86 *c)
+ 		/* Socket ID is ApicId[6] for these processors. */
+ 		c->phys_proc_id = c->apicid >> APICID_SOCKET_ID_BIT;
+ 
+-		cacheinfo_hygon_init_llc_id(c, cpu, node_id);
++		cacheinfo_hygon_init_llc_id(c, cpu);
+ 	} else if (cpu_has(c, X86_FEATURE_NODEID_MSR)) {
+ 		u64 value;
+ 
+ 		rdmsrl(MSR_FAM10H_NODE_ID, value);
+-		node_id = value & 7;
++		c->node_id = value & 7;
+ 
+-		per_cpu(cpu_llc_id, cpu) = node_id;
++		per_cpu(cpu_llc_id, cpu) = c->node_id;
+ 	} else
+ 		return;
+ 
+@@ -123,7 +122,7 @@ static void hygon_detect_cmp(struct cpuinfo_x86 *c)
+ 	/* Convert the initial APIC ID into the socket ID */
+ 	c->phys_proc_id = c->initial_apicid >> bits;
+ 	/* use socket ID also for last level cache */
+-	per_cpu(cpu_llc_id, cpu) = c->phys_proc_id;
++	per_cpu(cpu_llc_id, cpu) = c->node_id = c->phys_proc_id;
+ }
+ 
+ static void srat_detect_node(struct cpuinfo_x86 *c)
+
+From patchwork Thu Sep  3 20:01:38 2020
+From: Yazen Ghannam <Yazen.Ghannam@amd.com>
+To: linux-edac@vger.kernel.org
+Cc: Yazen Ghannam <Yazen.Ghannam@amd.com>,
+        linux-kernel@vger.kernel.org, tony.luck@intel.com, x86@kernel.org,
+        Smita.KoralahalliChannabasappa@amd.com
+Subject: [PATCH v2 2/8] x86/CPU/AMD: Remove amd_get_nb_id()
+Date: Thu,  3 Sep 2020 20:01:38 +0000
+
+From: Yazen Ghannam <yazen.ghannam@amd.com>
+
+The Last Level Cache ID is returned by amd_get_nb_id(). In practice,
+this value is the same as the AMD NodeId for callers of this function.
+The NodeId is saved in struct cpuinfo_x86.node_id.
+
+Replace calls to amd_get_nb_id() with the logical CPU's node_id and
+remove the function.
+
+Signed-off-by: Yazen Ghannam <yazen.ghannam@amd.com>
+---
+Link:
+https://lkml.kernel.org/r/20200814191449.183998-2-Yazen.Ghannam@amd.com
+
+v1 -> v2:
+* New patch.
+
+ arch/x86/events/amd/core.c       | 2 +-
+ arch/x86/include/asm/processor.h | 2 --
+ arch/x86/kernel/amd_nb.c         | 4 ++--
+ arch/x86/kernel/cpu/amd.c        | 6 ------
+ arch/x86/kernel/cpu/cacheinfo.c  | 2 +-
+ arch/x86/kernel/cpu/mce/amd.c    | 4 ++--
+ arch/x86/kernel/cpu/mce/inject.c | 4 ++--
+ drivers/edac/amd64_edac.c        | 4 ++--
+ drivers/edac/mce_amd.c           | 2 +-
+ 9 files changed, 11 insertions(+), 19 deletions(-)
+
+diff --git a/arch/x86/events/amd/core.c b/arch/x86/events/amd/core.c
+index 39eb276d0277..01b9b943dcf4 100644
+--- a/arch/x86/events/amd/core.c
++++ b/arch/x86/events/amd/core.c
+@@ -538,7 +538,7 @@ static void amd_pmu_cpu_starting(int cpu)
+ 	if (!x86_pmu.amd_nb_constraints)
+ 		return;
+ 
+-	nb_id = amd_get_nb_id(cpu);
++	nb_id = cpu_data(cpu).node_id;
+ 	WARN_ON_ONCE(nb_id == BAD_APICID);
+ 
+ 	for_each_online_cpu(i) {
+diff --git a/arch/x86/include/asm/processor.h b/arch/x86/include/asm/processor.h
+index a776b7886ec0..408977a323d3 100644
+--- a/arch/x86/include/asm/processor.h
++++ b/arch/x86/include/asm/processor.h
+@@ -871,10 +871,8 @@ extern int set_tsc_mode(unsigned int val);
+ DECLARE_PER_CPU(u64, msr_misc_features_shadow);
+ 
+ #ifdef CONFIG_CPU_SUP_AMD
+-extern u16 amd_get_nb_id(int cpu);
+ extern u32 amd_get_nodes_per_socket(void);
+ #else
+-static inline u16 amd_get_nb_id(int cpu)		{ return 0; }
+ static inline u32 amd_get_nodes_per_socket(void)	{ return 0; }
+ #endif
+ 
+diff --git a/arch/x86/kernel/amd_nb.c b/arch/x86/kernel/amd_nb.c
+index 18f6b7c4bd79..2bd8abdbed8e 100644
+--- a/arch/x86/kernel/amd_nb.c
++++ b/arch/x86/kernel/amd_nb.c
+@@ -384,7 +384,7 @@ struct resource *amd_get_mmconfig_range(struct resource *res)
+ 
+ int amd_get_subcaches(int cpu)
+ {
+-	struct pci_dev *link = node_to_amd_nb(amd_get_nb_id(cpu))->link;
++	struct pci_dev *link = node_to_amd_nb(cpu_data(cpu).node_id)->link;
+ 	unsigned int mask;
+ 
+ 	if (!amd_nb_has_feature(AMD_NB_L3_PARTITIONING))
+@@ -398,7 +398,7 @@ int amd_get_subcaches(int cpu)
+ int amd_set_subcaches(int cpu, unsigned long mask)
+ {
+ 	static unsigned int reset, ban;
+-	struct amd_northbridge *nb = node_to_amd_nb(amd_get_nb_id(cpu));
++	struct amd_northbridge *nb = node_to_amd_nb(cpu_data(cpu).node_id);
+ 	unsigned int reg;
+ 	int cuid;
+ 
+diff --git a/arch/x86/kernel/cpu/amd.c b/arch/x86/kernel/cpu/amd.c
+index 5eef4cc1e5b7..846367a69c4a 100644
+--- a/arch/x86/kernel/cpu/amd.c
++++ b/arch/x86/kernel/cpu/amd.c
+@@ -424,12 +424,6 @@ static void amd_detect_ppin(struct cpuinfo_x86 *c)
+ 	clear_cpu_cap(c, X86_FEATURE_AMD_PPIN);
+ }
+ 
+-u16 amd_get_nb_id(int cpu)
+-{
+-	return per_cpu(cpu_llc_id, cpu);
+-}
+-EXPORT_SYMBOL_GPL(amd_get_nb_id);
+-
+ u32 amd_get_nodes_per_socket(void)
+ {
+ 	return nodes_per_socket;
+diff --git a/arch/x86/kernel/cpu/cacheinfo.c b/arch/x86/kernel/cpu/cacheinfo.c
+index 81dfddae4470..8e34e90bb872 100644
+--- a/arch/x86/kernel/cpu/cacheinfo.c
++++ b/arch/x86/kernel/cpu/cacheinfo.c
+@@ -580,7 +580,7 @@ static void amd_init_l3_cache(struct _cpuid4_info_regs *this_leaf, int index)
+ 	if (index < 3)
+ 		return;
+ 
+-	node = amd_get_nb_id(smp_processor_id());
++	node = cpu_data(smp_processor_id()).node_id;
+ 	this_leaf->nb = node_to_amd_nb(node);
+ 	if (this_leaf->nb && !this_leaf->nb->l3_cache.indices)
+ 		amd_calc_l3_indices(this_leaf->nb);
+diff --git a/arch/x86/kernel/cpu/mce/amd.c b/arch/x86/kernel/cpu/mce/amd.c
+index 0c6b02dd744c..be96f77004ad 100644
+--- a/arch/x86/kernel/cpu/mce/amd.c
++++ b/arch/x86/kernel/cpu/mce/amd.c
+@@ -1341,7 +1341,7 @@ static int threshold_create_bank(struct threshold_bank **bp, unsigned int cpu,
+ 		return -ENODEV;
+ 
+ 	if (is_shared_bank(bank)) {
+-		nb = node_to_amd_nb(amd_get_nb_id(cpu));
++		nb = node_to_amd_nb(cpu_data(cpu).node_id);
+ 
+ 		/* threshold descriptor already initialized on this node? */
+ 		if (nb && nb->bank4) {
+@@ -1445,7 +1445,7 @@ static void threshold_remove_bank(struct threshold_bank *bank)
+ 		 * The last CPU on this node using the shared bank is going
+ 		 * away, remove that bank now.
+ 		 */
+-		nb = node_to_amd_nb(amd_get_nb_id(smp_processor_id()));
++		nb = node_to_amd_nb(cpu_data(smp_processor_id()).node_id);
+ 		nb->bank4 = NULL;
+ 	}
+ 
+diff --git a/arch/x86/kernel/cpu/mce/inject.c b/arch/x86/kernel/cpu/mce/inject.c
+index 3a44346f2276..ba491134c326 100644
+--- a/arch/x86/kernel/cpu/mce/inject.c
++++ b/arch/x86/kernel/cpu/mce/inject.c
+@@ -522,8 +522,8 @@ static void do_inject(void)
+ 	if (boot_cpu_has(X86_FEATURE_AMD_DCM) &&
+ 	    b == 4 &&
+ 	    boot_cpu_data.x86 < 0x17) {
+-		toggle_nb_mca_mst_cpu(amd_get_nb_id(cpu));
+-		cpu = get_nbc_for_node(amd_get_nb_id(cpu));
++		toggle_nb_mca_mst_cpu(cpu_data(cpu).node_id);
++		cpu = get_nbc_for_node(cpu_data(cpu).node_id);
+ 	}
+ 
+ 	get_online_cpus();
+diff --git a/drivers/edac/amd64_edac.c b/drivers/edac/amd64_edac.c
+index fcc08bbf6945..3f91cac00fb2 100644
+--- a/drivers/edac/amd64_edac.c
++++ b/drivers/edac/amd64_edac.c
+@@ -1133,7 +1133,7 @@ static int k8_early_channel_count(struct amd64_pvt *pvt)
+ /* On F10h and later ErrAddr is MC4_ADDR[47:1] */
+ static u64 get_error_address(struct amd64_pvt *pvt, struct mce *m)
+ {
+-	u16 mce_nid = amd_get_nb_id(m->extcpu);
++	u16 mce_nid = cpu_data(m->extcpu).node_id;
+ 	struct mem_ctl_info *mci;
+ 	u8 start_bit = 1;
+ 	u8 end_bit   = 47;
+@@ -3046,7 +3046,7 @@ static void get_cpus_on_this_dct_cpumask(struct cpumask *mask, u16 nid)
+ 	int cpu;
+ 
+ 	for_each_online_cpu(cpu)
+-		if (amd_get_nb_id(cpu) == nid)
++		if (cpu_data(cpu).node_id == nid)
+ 			cpumask_set_cpu(cpu, mask);
+ }
+ 
+diff --git a/drivers/edac/mce_amd.c b/drivers/edac/mce_amd.c
+index 7f28edb070bd..ac9bd74c92cd 100644
+--- a/drivers/edac/mce_amd.c
++++ b/drivers/edac/mce_amd.c
+@@ -869,7 +869,7 @@ static void decode_mc3_mce(struct mce *m)
+ static void decode_mc4_mce(struct mce *m)
+ {
+ 	unsigned int fam = x86_family(m->cpuid);
+-	int node_id = amd_get_nb_id(m->extcpu);
++	int node_id = cpu_data(m->extcpu).node_id;
+ 	u16 ec = EC(m->status);
+ 	u8 xec = XEC(m->status, 0x1f);
+ 	u8 offset = 0;
+
+From patchwork Thu Sep  3 20:01:39 2020
+From: Yazen Ghannam <Yazen.Ghannam@amd.com>
+To: linux-edac@vger.kernel.org
+Cc: Yazen Ghannam <Yazen.Ghannam@amd.com>,
+        linux-kernel@vger.kernel.org, tony.luck@intel.com, x86@kernel.org,
+        Smita.KoralahalliChannabasappa@amd.com
+Subject: [PATCH v2 3/8] EDAC/mce_amd: Use struct cpuinfo_x86.node_id for
+ NodeId
+Date: Thu,  3 Sep 2020 20:01:39 +0000
+
+From: Yazen Ghannam <yazen.ghannam@amd.com>
+
+The edac_mce_amd module calls decode_dram_ecc() on AMD Family17h and
+later systems. This function is used in amd64_edac_mod to do
+system-specific decoding for DRAM ECC errors. The function takes a
+"NodeId" as a parameter.
+
+In AMD documentation, NodeId is used to identify a physical die in a
+system. This can be used to identify a node in the AMD_NB code and also
+it is used with umc_normaddr_to_sysaddr().
+
+However, the input used for decode_dram_ecc() is currently the NUMA node
+of a logical CPU. In the default configuration, the NUMA node and
+physical die will be equivalent, so this doesn't have an impact. But the
+NUMA node configuration can be adjusted with optional memory
+interleaving modes. This will cause the NUMA node enumeration to not
+match the physical die enumeration. The mismatch will cause the address
+translation function to fail or report incorrect results.
+
+Use struct cpuinfo_x86.node_id for the node_id parameter to ensure the
+physical ID is used.
+
+Fixes: fbe63acf62f5 ("EDAC, mce_amd: Use cpu_to_node() to find the node ID")
+Signed-off-by: Yazen Ghannam <yazen.ghannam@amd.com>
+---
+Link:
+https://lkml.kernel.org/r/20200814191449.183998-2-Yazen.Ghannam@amd.com
+
+v1 -> v2:
+* Redo based on change in Patch 1.
+
+ drivers/edac/mce_amd.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/edac/mce_amd.c b/drivers/edac/mce_amd.c
+index ac9bd74c92cd..91b5e3e0744e 100644
+--- a/drivers/edac/mce_amd.c
++++ b/drivers/edac/mce_amd.c
+@@ -1003,7 +1003,7 @@ static void decode_smca_error(struct mce *m)
+ 		pr_cont(", %s.\n", smca_mce_descs[bank_type].descs[xec]);
+ 
+ 	if (bank_type == SMCA_UMC && xec == 0 && decode_dram_ecc)
+-		decode_dram_ecc(cpu_to_node(m->extcpu), m);
++		decode_dram_ecc(cpu_data(m->extcpu).node_id, m);
+ }
+ 
+ static inline void amd_decode_err_code(u16 ec)
+
+From patchwork Thu Sep  3 20:01:40 2020
+From: Yazen Ghannam <Yazen.Ghannam@amd.com>
+To: linux-edac@vger.kernel.org
+Cc: Yazen Ghannam <Yazen.Ghannam@amd.com>,
+        linux-kernel@vger.kernel.org, tony.luck@intel.com, x86@kernel.org,
+        Smita.KoralahalliChannabasappa@amd.com
+Subject: [PATCH v2 4/8] x86/MCE/AMD: Use defines for register addresses in
+ translation code
+Date: Thu,  3 Sep 2020 20:01:40 +0000
+
+From: Yazen Ghannam <yazen.ghannam@amd.com>
+
+Replace raw register offset values in the AMD address translation code
+with named definitions.
+
+Also, drop comments that only note the register names.
+
+Signed-off-by: Yazen Ghannam <yazen.ghannam@amd.com>
+---
+Link:
+https://lkml.kernel.org/r/20200814191449.183998-3-Yazen.Ghannam@amd.com
+
+v1 -> v2:
+* New patch based on comments for v1 Patch 2.
+
+ arch/x86/kernel/cpu/mce/amd.c | 26 +++++++++++++++-----------
+ 1 file changed, 15 insertions(+), 11 deletions(-)
+
+diff --git a/arch/x86/kernel/cpu/mce/amd.c b/arch/x86/kernel/cpu/mce/amd.c
+index be96f77004ad..1e0510fd5afc 100644
+--- a/arch/x86/kernel/cpu/mce/amd.c
++++ b/arch/x86/kernel/cpu/mce/amd.c
+@@ -675,6 +675,14 @@ void mce_amd_feature_init(struct cpuinfo_x86 *c)
+ 		deferred_error_interrupt_enable(c);
+ }
+ 
++#define DF_F0_FABRICINSTINFO3	0x50
++#define DF_F0_MMIOHOLE		0x104
++#define DF_F0_DRAMBASEADDR	0x110
++#define DF_F0_DRAMLIMITADDR	0x114
++#define DF_F0_DRAMOFFSET	0x1B4
++
++#define DF_F1_SYSFABRICID	0x208
++
+ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ {
+ 	u64 dram_base_addr, dram_limit_addr, dram_hole_base;
+@@ -691,22 +699,21 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 	u8 cs_mask, cs_id = 0;
+ 	bool hash_enabled = false;
+ 
+-	/* Read D18F0x1B4 (DramOffset), check if base 1 is used. */
+-	if (amd_df_indirect_read(nid, 0, 0x1B4, umc, &tmp))
++	if (amd_df_indirect_read(nid, 0, DF_F0_DRAMOFFSET, umc, &tmp))
+ 		goto out_err;
+ 
+ 	/* Remove HiAddrOffset from normalized address, if enabled: */
+ 	if (tmp & BIT(0)) {
+ 		u64 hi_addr_offset = (tmp & GENMASK_ULL(31, 20)) << 8;
+ 
++		/* Check if base 1 is used. */
+ 		if (norm_addr >= hi_addr_offset) {
+ 			ret_addr -= hi_addr_offset;
+ 			base = 1;
+ 		}
+ 	}
+ 
+-	/* Read D18F0x110 (DramBaseAddress). */
+-	if (amd_df_indirect_read(nid, 0, 0x110 + (8 * base), umc, &tmp))
++	if (amd_df_indirect_read(nid, 0, DF_F0_DRAMBASEADDR + (8 * base), umc, &tmp))
+ 		goto out_err;
+ 
+ 	/* Check if address range is valid. */
+@@ -728,8 +735,7 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 		goto out_err;
+ 	}
+ 
+-	/* Read D18F0x114 (DramLimitAddress). */
+-	if (amd_df_indirect_read(nid, 0, 0x114 + (8 * base), umc, &tmp))
++	if (amd_df_indirect_read(nid, 0, DF_F0_DRAMLIMITADDR + (8 * base), umc, &tmp))
+ 		goto out_err;
+ 
+ 	intlv_num_sockets = (tmp >> 8) & 0x1;
+@@ -780,12 +786,11 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 		u8 die_id_bit, sock_id_bit, cs_fabric_id;
+ 
+ 		/*
+-		 * Read FabricBlockInstanceInformation3_CS[BlockFabricID].
+ 		 * This is the fabric id for this coherent slave. Use
+ 		 * umc/channel# as instance id of the coherent slave
+ 		 * for FICAA.
+ 		 */
+-		if (amd_df_indirect_read(nid, 0, 0x50, umc, &tmp))
++		if (amd_df_indirect_read(nid, 0, DF_F0_FABRICINSTINFO3, umc, &tmp))
+ 			goto out_err;
+ 
+ 		cs_fabric_id = (tmp >> 8) & 0xFF;
+@@ -800,9 +805,8 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 
+ 		sock_id_bit = die_id_bit;
+ 
+-		/* Read D18F1x208 (SystemFabricIdMask). */
+ 		if (intlv_num_dies || intlv_num_sockets)
+-			if (amd_df_indirect_read(nid, 1, 0x208, umc, &tmp))
++			if (amd_df_indirect_read(nid, 1, DF_F1_SYSFABRICID, umc, &tmp))
+ 				goto out_err;
+ 
+ 		/* If interleaved over more than 1 die. */
+@@ -841,7 +845,7 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 
+ 	/* If legacy MMIO hole enabled */
+ 	if (lgcy_mmio_hole_en) {
+-		if (amd_df_indirect_read(nid, 0, 0x104, umc, &tmp))
++		if (amd_df_indirect_read(nid, 0, DF_F0_MMIOHOLE, umc, &tmp))
+ 			goto out_err;
+ 
+ 		dram_hole_base = tmp & GENMASK(31, 24);
+
+From patchwork Thu Sep  3 20:01:41 2020
+From: Yazen Ghannam <Yazen.Ghannam@amd.com>
+To: linux-edac@vger.kernel.org
+Cc: Yazen Ghannam <Yazen.Ghannam@amd.com>,
+        linux-kernel@vger.kernel.org, tony.luck@intel.com, x86@kernel.org,
+        Smita.KoralahalliChannabasappa@amd.com
+Subject: [PATCH v2 5/8] x86/MCE/AMD: Use macros to get bitfields in
+ translation code
+Date: Thu,  3 Sep 2020 20:01:41 +0000
+
+From: Yazen Ghannam <yazen.ghannam@amd.com>
+
+Define macros to get individual bits and bitfields. Use these to make
+the code more readable.
+
+Signed-off-by: Yazen Ghannam <yazen.ghannam@amd.com>
+---
+Link:
+https://lkml.kernel.org/r/20200814191449.183998-3-Yazen.Ghannam@amd.com
+
+v1 -> v2:
+* New patch based on comments for v1 Patch 2.
+
+ arch/x86/kernel/cpu/mce/amd.c | 46 +++++++++++++++++------------------
+ 1 file changed, 23 insertions(+), 23 deletions(-)
+
+diff --git a/arch/x86/kernel/cpu/mce/amd.c b/arch/x86/kernel/cpu/mce/amd.c
+index 1e0510fd5afc..90c3ad61ae19 100644
+--- a/arch/x86/kernel/cpu/mce/amd.c
++++ b/arch/x86/kernel/cpu/mce/amd.c
+@@ -675,6 +675,9 @@ void mce_amd_feature_init(struct cpuinfo_x86 *c)
+ 		deferred_error_interrupt_enable(c);
+ }
+ 
++#define get_bits(x, msb, lsb)	((x & GENMASK_ULL(msb, lsb)) >> lsb)
++#define get_bit(x, bit)		((x >> bit) & BIT(0))
++
+ #define DF_F0_FABRICINSTINFO3	0x50
+ #define DF_F0_MMIOHOLE		0x104
+ #define DF_F0_DRAMBASEADDR	0x110
+@@ -704,7 +707,7 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 
+ 	/* Remove HiAddrOffset from normalized address, if enabled: */
+ 	if (tmp & BIT(0)) {
+-		u64 hi_addr_offset = (tmp & GENMASK_ULL(31, 20)) << 8;
++		u64 hi_addr_offset = get_bits(tmp, 31, 20) << 28;
+ 
+ 		/* Check if base 1 is used. */
+ 		if (norm_addr >= hi_addr_offset) {
+@@ -723,10 +726,10 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 		goto out_err;
+ 	}
+ 
+-	lgcy_mmio_hole_en = tmp & BIT(1);
+-	intlv_num_chan	  = (tmp >> 4) & 0xF;
+-	intlv_addr_sel	  = (tmp >> 8) & 0x7;
+-	dram_base_addr	  = (tmp & GENMASK_ULL(31, 12)) << 16;
++	lgcy_mmio_hole_en = get_bit(tmp, 1);
++	intlv_num_chan	  = get_bits(tmp, 7, 4);
++	intlv_addr_sel	  = get_bits(tmp, 10, 8);
++	dram_base_addr	  = get_bits(tmp, 31, 12) << 28;
+ 
+ 	/* {0, 1, 2, 3} map to address bits {8, 9, 10, 11} respectively */
+ 	if (intlv_addr_sel > 3) {
+@@ -738,9 +741,9 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 	if (amd_df_indirect_read(nid, 0, DF_F0_DRAMLIMITADDR + (8 * base), umc, &tmp))
+ 		goto out_err;
+ 
+-	intlv_num_sockets = (tmp >> 8) & 0x1;
+-	intlv_num_dies	  = (tmp >> 10) & 0x3;
+-	dram_limit_addr	  = ((tmp & GENMASK_ULL(31, 12)) << 16) | GENMASK_ULL(27, 0);
++	intlv_num_sockets = get_bit(tmp, 8);
++	intlv_num_dies	  = get_bits(tmp, 11, 10);
++	dram_limit_addr	  = (get_bits(tmp, 31, 12) << 28) | GENMASK_ULL(27, 0);
+ 
+ 	intlv_addr_bit = intlv_addr_sel + 8;
+ 
+@@ -793,7 +796,7 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 		if (amd_df_indirect_read(nid, 0, DF_F0_FABRICINSTINFO3, umc, &tmp))
+ 			goto out_err;
+ 
+-		cs_fabric_id = (tmp >> 8) & 0xFF;
++		cs_fabric_id = get_bits(tmp, 15, 8);
+ 		die_id_bit   = 0;
+ 
+ 		/* If interleaved over more than 1 channel: */
+@@ -812,16 +815,16 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 		/* If interleaved over more than 1 die. */
+ 		if (intlv_num_dies) {
+ 			sock_id_bit  = die_id_bit + intlv_num_dies;
+-			die_id_shift = (tmp >> 24) & 0xF;
+-			die_id_mask  = (tmp >> 8) & 0xFF;
++			die_id_shift = get_bits(tmp, 27, 24);
++			die_id_mask  = get_bits(tmp, 15, 8);
+ 
+ 			cs_id |= ((cs_fabric_id & die_id_mask) >> die_id_shift) << die_id_bit;
+ 		}
+ 
+ 		/* If interleaved over more than 1 socket. */
+ 		if (intlv_num_sockets) {
+-			socket_id_shift	= (tmp >> 28) & 0xF;
+-			socket_id_mask	= (tmp >> 16) & 0xFF;
++			socket_id_shift	= get_bits(tmp, 31, 28);
++			socket_id_mask	= get_bits(tmp, 23, 16);
+ 
+ 			cs_id |= ((cs_fabric_id & socket_id_mask) >> socket_id_shift) << sock_id_bit;
+ 		}
+@@ -834,7 +837,7 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 		 * bits there are. "intlv_addr_bit" tells us how many "Y" bits
+ 		 * there are (where "I" starts).
+ 		 */
+-		temp_addr_y = ret_addr & GENMASK_ULL(intlv_addr_bit-1, 0);
++		temp_addr_y = get_bits(ret_addr, intlv_addr_bit-1, 0);
+ 		temp_addr_i = (cs_id << intlv_addr_bit);
+ 		temp_addr_x = (ret_addr & GENMASK_ULL(63, intlv_addr_bit)) << num_intlv_bits;
+ 		ret_addr    = temp_addr_x | temp_addr_i | temp_addr_y;
+@@ -854,16 +857,13 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 	}
+ 
+ 	if (hash_enabled) {
+-		/* Save some parentheses and grab ls-bit at the end. */
+-		hashed_bit =	(ret_addr >> 12) ^
+-				(ret_addr >> 18) ^
+-				(ret_addr >> 21) ^
+-				(ret_addr >> 30) ^
+-				cs_id;
+-
+-		hashed_bit &= BIT(0);
++		hashed_bit =	get_bit(ret_addr, 12) ^
++				get_bit(ret_addr, 18) ^
++				get_bit(ret_addr, 21) ^
++				get_bit(ret_addr, 30) ^
++				get_bit(cs_id, 0);
+ 
+-		if (hashed_bit != ((ret_addr >> intlv_addr_bit) & BIT(0)))
++		if (hashed_bit != get_bit(ret_addr, intlv_addr_bit))
+ 			ret_addr ^= BIT(intlv_addr_bit);
+ 	}
+ 
+
+From patchwork Thu Sep  3 20:01:42 2020
+From: Yazen Ghannam <Yazen.Ghannam@amd.com>
+To: linux-edac@vger.kernel.org
+Cc: Yazen Ghannam <Yazen.Ghannam@amd.com>,
+        linux-kernel@vger.kernel.org, tony.luck@intel.com, x86@kernel.org,
+        Smita.KoralahalliChannabasappa@amd.com
+Subject: [PATCH v2 6/8] x86/MCE/AMD: Drop tmp variable in translation code
+Date: Thu,  3 Sep 2020 20:01:42 +0000
+
+From: Yazen Ghannam <yazen.ghannam@amd.com>
+
+Remove the "tmp" variable used to save register values. Save the values
+in existing variables, if possible.
+
+The register values are 32 bits. Use separate "reg_" variables to hold
+the register values if the existing variable sizes doesn't match, or if
+no bitfields in a register share the same name as the register.
+
+Signed-off-by: Yazen Ghannam <yazen.ghannam@amd.com>
+---
+Link:
+https://lkml.kernel.org/r/20200814191449.183998-3-Yazen.Ghannam@amd.com
+
+v1 -> v2:
+* New patch based on comments for v1 Patch 2.
+
+ arch/x86/kernel/cpu/mce/amd.c | 56 +++++++++++++++++++----------------
+ 1 file changed, 30 insertions(+), 26 deletions(-)
+
+diff --git a/arch/x86/kernel/cpu/mce/amd.c b/arch/x86/kernel/cpu/mce/amd.c
+index 90c3ad61ae19..5a18937ff7cd 100644
+--- a/arch/x86/kernel/cpu/mce/amd.c
++++ b/arch/x86/kernel/cpu/mce/amd.c
+@@ -688,11 +688,14 @@ void mce_amd_feature_init(struct cpuinfo_x86 *c)
+ 
+ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ {
+-	u64 dram_base_addr, dram_limit_addr, dram_hole_base;
+ 	/* We start from the normalized address */
+ 	u64 ret_addr = norm_addr;
+ 
+-	u32 tmp;
++	u64 dram_base_addr, dram_limit_addr;
++	u32 dram_hole_base;
++
++	u32 reg_dram_base_addr, reg_dram_limit_addr;
++	u32 reg_dram_offset;
+ 
+ 	u8 die_id_shift, die_id_mask, socket_id_shift, socket_id_mask;
+ 	u8 intlv_num_dies, intlv_num_chan, intlv_num_sockets;
+@@ -702,12 +705,12 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 	u8 cs_mask, cs_id = 0;
+ 	bool hash_enabled = false;
+ 
+-	if (amd_df_indirect_read(nid, 0, DF_F0_DRAMOFFSET, umc, &tmp))
++	if (amd_df_indirect_read(nid, 0, DF_F0_DRAMOFFSET, umc, &reg_dram_offset))
+ 		goto out_err;
+ 
+ 	/* Remove HiAddrOffset from normalized address, if enabled: */
+-	if (tmp & BIT(0)) {
+-		u64 hi_addr_offset = get_bits(tmp, 31, 20) << 28;
++	if (reg_dram_offset & BIT(0)) {
++		u64 hi_addr_offset = get_bits(reg_dram_offset, 31, 20) << 28;
+ 
+ 		/* Check if base 1 is used. */
+ 		if (norm_addr >= hi_addr_offset) {
+@@ -716,20 +719,20 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 		}
+ 	}
+ 
+-	if (amd_df_indirect_read(nid, 0, DF_F0_DRAMBASEADDR + (8 * base), umc, &tmp))
++	if (amd_df_indirect_read(nid, 0, DF_F0_DRAMBASEADDR + (8 * base), umc, &reg_dram_base_addr))
+ 		goto out_err;
+ 
+ 	/* Check if address range is valid. */
+-	if (!(tmp & BIT(0))) {
++	if (!(reg_dram_base_addr & BIT(0))) {
+ 		pr_err("%s: Invalid DramBaseAddress range: 0x%x.\n",
+-			__func__, tmp);
++			__func__, reg_dram_base_addr);
+ 		goto out_err;
+ 	}
+ 
+-	lgcy_mmio_hole_en = get_bit(tmp, 1);
+-	intlv_num_chan	  = get_bits(tmp, 7, 4);
+-	intlv_addr_sel	  = get_bits(tmp, 10, 8);
+-	dram_base_addr	  = get_bits(tmp, 31, 12) << 28;
++	lgcy_mmio_hole_en = get_bit(reg_dram_base_addr, 1);
++	intlv_num_chan	  = get_bits(reg_dram_base_addr, 7, 4);
++	intlv_addr_sel	  = get_bits(reg_dram_base_addr, 10, 8);
++	dram_base_addr	  = get_bits(reg_dram_base_addr, 31, 12) << 28;
+ 
+ 	/* {0, 1, 2, 3} map to address bits {8, 9, 10, 11} respectively */
+ 	if (intlv_addr_sel > 3) {
+@@ -738,12 +741,12 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 		goto out_err;
+ 	}
+ 
+-	if (amd_df_indirect_read(nid, 0, DF_F0_DRAMLIMITADDR + (8 * base), umc, &tmp))
++	if (amd_df_indirect_read(nid, 0, DF_F0_DRAMLIMITADDR + (8 * base), umc, &reg_dram_limit_addr))
+ 		goto out_err;
+ 
+-	intlv_num_sockets = get_bit(tmp, 8);
+-	intlv_num_dies	  = get_bits(tmp, 11, 10);
+-	dram_limit_addr	  = (get_bits(tmp, 31, 12) << 28) | GENMASK_ULL(27, 0);
++	intlv_num_sockets = get_bit(reg_dram_limit_addr, 8);
++	intlv_num_dies	  = get_bits(reg_dram_limit_addr, 11, 10);
++	dram_limit_addr	  = (get_bits(reg_dram_limit_addr, 31, 12) << 28) | GENMASK_ULL(27, 0);
+ 
+ 	intlv_addr_bit = intlv_addr_sel + 8;
+ 
+@@ -786,17 +789,18 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 
+ 	if (num_intlv_bits > 0) {
+ 		u64 temp_addr_x, temp_addr_i, temp_addr_y;
+-		u8 die_id_bit, sock_id_bit, cs_fabric_id;
++		u32 reg_sys_fabric_id, cs_fabric_id;
++		u8 die_id_bit, sock_id_bit;
+ 
+ 		/*
+ 		 * This is the fabric id for this coherent slave. Use
+ 		 * umc/channel# as instance id of the coherent slave
+ 		 * for FICAA.
+ 		 */
+-		if (amd_df_indirect_read(nid, 0, DF_F0_FABRICINSTINFO3, umc, &tmp))
++		if (amd_df_indirect_read(nid, 0, DF_F0_FABRICINSTINFO3, umc, &cs_fabric_id))
+ 			goto out_err;
+ 
+-		cs_fabric_id = get_bits(tmp, 15, 8);
++		cs_fabric_id = get_bits(cs_fabric_id, 15, 8);
+ 		die_id_bit   = 0;
+ 
+ 		/* If interleaved over more than 1 channel: */
+@@ -809,22 +813,22 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 		sock_id_bit = die_id_bit;
+ 
+ 		if (intlv_num_dies || intlv_num_sockets)
+-			if (amd_df_indirect_read(nid, 1, DF_F1_SYSFABRICID, umc, &tmp))
++			if (amd_df_indirect_read(nid, 1, DF_F1_SYSFABRICID, umc, &reg_sys_fabric_id))
+ 				goto out_err;
+ 
+ 		/* If interleaved over more than 1 die. */
+ 		if (intlv_num_dies) {
+ 			sock_id_bit  = die_id_bit + intlv_num_dies;
+-			die_id_shift = get_bits(tmp, 27, 24);
+-			die_id_mask  = get_bits(tmp, 15, 8);
++			die_id_shift = get_bits(reg_sys_fabric_id, 27, 24);
++			die_id_mask  = get_bits(reg_sys_fabric_id, 15, 8);
+ 
+ 			cs_id |= ((cs_fabric_id & die_id_mask) >> die_id_shift) << die_id_bit;
+ 		}
+ 
+ 		/* If interleaved over more than 1 socket. */
+ 		if (intlv_num_sockets) {
+-			socket_id_shift	= get_bits(tmp, 31, 28);
+-			socket_id_mask	= get_bits(tmp, 23, 16);
++			socket_id_shift	= get_bits(reg_sys_fabric_id, 31, 28);
++			socket_id_mask	= get_bits(reg_sys_fabric_id, 23, 16);
+ 
+ 			cs_id |= ((cs_fabric_id & socket_id_mask) >> socket_id_shift) << sock_id_bit;
+ 		}
+@@ -848,10 +852,10 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 
+ 	/* If legacy MMIO hole enabled */
+ 	if (lgcy_mmio_hole_en) {
+-		if (amd_df_indirect_read(nid, 0, DF_F0_MMIOHOLE, umc, &tmp))
++		if (amd_df_indirect_read(nid, 0, DF_F0_MMIOHOLE, umc, &dram_hole_base))
+ 			goto out_err;
+ 
+-		dram_hole_base = tmp & GENMASK(31, 24);
++		dram_hole_base &= GENMASK(31, 24);
+ 		if (ret_addr >= dram_hole_base)
+ 			ret_addr += (BIT_ULL(32) - dram_hole_base);
+ 	}
+
+From patchwork Thu Sep  3 20:01:43 2020
+From: Yazen Ghannam <Yazen.Ghannam@amd.com>
+To: linux-edac@vger.kernel.org
+Cc: Yazen Ghannam <Yazen.Ghannam@amd.com>,
+        linux-kernel@vger.kernel.org, tony.luck@intel.com, x86@kernel.org,
+        Smita.KoralahalliChannabasappa@amd.com
+Subject: [PATCH v2 7/8] x86/MCE/AMD: Group register reads in translation code
+Date: Thu,  3 Sep 2020 20:01:43 +0000
+
+From: Yazen Ghannam <yazen.ghannam@amd.com>
+
+...so that bitfield extraction can be done together to simplify future
+patches.
+
+Signed-off-by: Yazen Ghannam <yazen.ghannam@amd.com>
+---
+Link:
+https://lkml.kernel.org/r/20200814191449.183998-3-Yazen.Ghannam@amd.com
+
+v1 -> v2:
+* New patch based on comments for v1 Patch 2.
+
+ arch/x86/kernel/cpu/mce/amd.c | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/arch/x86/kernel/cpu/mce/amd.c b/arch/x86/kernel/cpu/mce/amd.c
+index 5a18937ff7cd..f5440f8000e9 100644
+--- a/arch/x86/kernel/cpu/mce/amd.c
++++ b/arch/x86/kernel/cpu/mce/amd.c
+@@ -729,11 +729,18 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 		goto out_err;
+ 	}
+ 
++	if (amd_df_indirect_read(nid, 0, DF_F0_DRAMLIMITADDR + (8 * base), umc, &reg_dram_limit_addr))
++		goto out_err;
++
+ 	lgcy_mmio_hole_en = get_bit(reg_dram_base_addr, 1);
+ 	intlv_num_chan	  = get_bits(reg_dram_base_addr, 7, 4);
+ 	intlv_addr_sel	  = get_bits(reg_dram_base_addr, 10, 8);
+ 	dram_base_addr	  = get_bits(reg_dram_base_addr, 31, 12) << 28;
+ 
++	intlv_num_sockets = get_bit(reg_dram_limit_addr, 8);
++	intlv_num_dies	  = get_bits(reg_dram_limit_addr, 11, 10);
++	dram_limit_addr	  = (get_bits(reg_dram_limit_addr, 31, 12) << 28) | GENMASK_ULL(27, 0);
++
+ 	/* {0, 1, 2, 3} map to address bits {8, 9, 10, 11} respectively */
+ 	if (intlv_addr_sel > 3) {
+ 		pr_err("%s: Invalid interleave address select %d.\n",
+@@ -741,13 +748,6 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 		goto out_err;
+ 	}
+ 
+-	if (amd_df_indirect_read(nid, 0, DF_F0_DRAMLIMITADDR + (8 * base), umc, &reg_dram_limit_addr))
+-		goto out_err;
+-
+-	intlv_num_sockets = get_bit(reg_dram_limit_addr, 8);
+-	intlv_num_dies	  = get_bits(reg_dram_limit_addr, 11, 10);
+-	dram_limit_addr	  = (get_bits(reg_dram_limit_addr, 31, 12) << 28) | GENMASK_ULL(27, 0);
+-
+ 	intlv_addr_bit = intlv_addr_sel + 8;
+ 
+ 	/* Re-use intlv_num_chan by setting it equal to log2(#channels) */
+
+From patchwork Thu Sep  3 20:01:44 2020
+From: Yazen Ghannam <Yazen.Ghannam@amd.com>
+To: linux-edac@vger.kernel.org
+Cc: Yazen Ghannam <Yazen.Ghannam@amd.com>,
+        linux-kernel@vger.kernel.org, tony.luck@intel.com, x86@kernel.org,
+        Smita.KoralahalliChannabasappa@amd.com
+Subject: [PATCH v2 8/8] x86/MCE/AMD Support new memory interleaving modes
+ during address translation
+Date: Thu,  3 Sep 2020 20:01:44 +0000
+
+From: Muralidhara M K <muralidhara.mk@amd.com>
+
+Add support for new memory interleaving modes used in current AMD systems.
+
+Check if the system is using a current Data Fabric version or a legacy
+version as some bit and register definitions have changed.
+
+Tested on AMD reference platforms with the following memory interleaving
+options.
+
+Naples
+- None
+- Channel
+- Die
+- Socket
+
+Rome (NPS = Nodes per Socket)
+- None
+- NPS0
+- NPS1
+- NPS2
+- NPS4
+
+The fixes tag refers to the commit that allows amd64_edac_mod to load on
+Rome systems. The module may report an incorrect system addresses on
+Rome systems depending on the interleaving option used.
+
+Fixes: 6e846239e548 ("EDAC/amd64: Add Family 17h Model 30h PCI IDs")
+Signed-off-by: Muralidhara M K <muralidhara.mk@amd.com>
+Co-developed-by: Naveen Krishna Chtradhi <naveenkrishna.chatradhi@amd.com>
+Signed-off-by: Naveen Krishna Chtradhi <naveenkrishna.chatradhi@amd.com>
+Co-developed-by: Yazen Ghannam <yazen.ghannam@amd.com>
+Signed-off-by: Yazen Ghannam <yazen.ghannam@amd.com>
+---
+Link:
+https://lkml.kernel.org/r/20200814191449.183998-3-Yazen.Ghannam@amd.com
+
+v1 -> v2:
+* Rebased on cleanup patches.
+* Save and use the Data Fabric version.
+* Reorder code to execute non-legacy flows first. This change wasn't
+  made to the section with the "hashed_bit" calculation, since the
+  current flow reads easier IMHO.
+
+ arch/x86/kernel/cpu/mce/amd.c | 222 ++++++++++++++++++++++++++--------
+ 1 file changed, 172 insertions(+), 50 deletions(-)
+
+diff --git a/arch/x86/kernel/cpu/mce/amd.c b/arch/x86/kernel/cpu/mce/amd.c
+index f5440f8000e9..c14076bcabf2 100644
+--- a/arch/x86/kernel/cpu/mce/amd.c
++++ b/arch/x86/kernel/cpu/mce/amd.c
+@@ -683,8 +683,10 @@ void mce_amd_feature_init(struct cpuinfo_x86 *c)
+ #define DF_F0_DRAMBASEADDR	0x110
+ #define DF_F0_DRAMLIMITADDR	0x114
+ #define DF_F0_DRAMOFFSET	0x1B4
++#define DF_F0_DFGLOBALCTRL	0x3F8
+ 
+ #define DF_F1_SYSFABRICID	0x208
++#define DF_F1_SYSFABRICID1	0x20C
+ 
+ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ {
+@@ -695,22 +697,30 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 	u32 dram_hole_base;
+ 
+ 	u32 reg_dram_base_addr, reg_dram_limit_addr;
+-	u32 reg_dram_offset;
++	u32 reg_dram_offset, reg_sys_fabric_id;
++
++	bool hash_enabled = false, split_normalized = false;
+ 
+-	u8 die_id_shift, die_id_mask, socket_id_shift, socket_id_mask;
+ 	u8 intlv_num_dies, intlv_num_chan, intlv_num_sockets;
+-	u8 intlv_addr_sel, intlv_addr_bit;
+-	u8 num_intlv_bits, hashed_bit;
++	u8 intlv_addr_sel, intlv_addr_bit, num_intlv_bits;
++	u8 cs_mask, cs_id = 0, dst_fabric_id = 0;
+ 	u8 lgcy_mmio_hole_en, base = 0;
+-	u8 cs_mask, cs_id = 0;
+-	bool hash_enabled = false;
++	u8 df_version;
++
++	if (amd_df_indirect_read(nid, 1, DF_F1_SYSFABRICID, umc, &reg_sys_fabric_id))
++		goto out_err;
++
++	df_version = (reg_sys_fabric_id & 0xFF) ? 3 : 2;
+ 
+ 	if (amd_df_indirect_read(nid, 0, DF_F0_DRAMOFFSET, umc, &reg_dram_offset))
+ 		goto out_err;
+ 
+ 	/* Remove HiAddrOffset from normalized address, if enabled: */
+ 	if (reg_dram_offset & BIT(0)) {
+-		u64 hi_addr_offset = get_bits(reg_dram_offset, 31, 20) << 28;
++		u8 hi_addr_offset_lsb = (df_version >= 3) ? 12 : 20;
++		u64 hi_addr_offset = get_bits(reg_dram_offset, 31, hi_addr_offset_lsb);
++
++		hi_addr_offset <<= 28;
+ 
+ 		/* Check if base 1 is used. */
+ 		if (norm_addr >= hi_addr_offset) {
+@@ -733,19 +743,23 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 		goto out_err;
+ 
+ 	lgcy_mmio_hole_en = get_bit(reg_dram_base_addr, 1);
+-	intlv_num_chan	  = get_bits(reg_dram_base_addr, 7, 4);
+-	intlv_addr_sel	  = get_bits(reg_dram_base_addr, 10, 8);
+ 	dram_base_addr	  = get_bits(reg_dram_base_addr, 31, 12) << 28;
+-
+-	intlv_num_sockets = get_bit(reg_dram_limit_addr, 8);
+-	intlv_num_dies	  = get_bits(reg_dram_limit_addr, 11, 10);
+ 	dram_limit_addr	  = (get_bits(reg_dram_limit_addr, 31, 12) << 28) | GENMASK_ULL(27, 0);
+ 
+-	/* {0, 1, 2, 3} map to address bits {8, 9, 10, 11} respectively */
+-	if (intlv_addr_sel > 3) {
+-		pr_err("%s: Invalid interleave address select %d.\n",
+-			__func__, intlv_addr_sel);
+-		goto out_err;
++	if (df_version >= 3) {
++		intlv_num_chan    = get_bits(reg_dram_base_addr, 5, 2);
++		intlv_num_dies    = get_bits(reg_dram_base_addr, 7, 6);
++		intlv_num_sockets = get_bit(reg_dram_base_addr, 8);
++		intlv_addr_sel    = get_bits(reg_dram_base_addr, 11, 9);
++
++		dst_fabric_id	  = get_bits(reg_dram_limit_addr, 9, 0);
++	} else {
++		intlv_num_chan	  = get_bits(reg_dram_base_addr, 7, 4);
++		intlv_addr_sel	  = get_bits(reg_dram_base_addr, 10, 8);
++
++		dst_fabric_id	  = get_bits(reg_dram_limit_addr, 7, 0);
++		intlv_num_sockets = get_bit(reg_dram_limit_addr, 8);
++		intlv_num_dies	  = get_bits(reg_dram_limit_addr, 11, 10);
+ 	}
+ 
+ 	intlv_addr_bit = intlv_addr_sel + 8;
+@@ -758,27 +772,42 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 	case 5:	intlv_num_chan = 3; break;
+ 	case 7:	intlv_num_chan = 4; break;
+ 
+-	case 8: intlv_num_chan = 1;
++	case 8:
++		if (df_version >= 3) {
++			intlv_num_chan = 5;
++		} else {
++			intlv_num_chan = 1;
++			hash_enabled = true;
++		}
++		break;
++	case 12:
++		intlv_num_chan = 1;
+ 		hash_enabled = true;
+ 		break;
++	case 13:
++		intlv_num_chan = 2;
++		hash_enabled = true;
++		split_normalized = true;
++		break;
++	case 14:
++		intlv_num_chan = 3;
++		hash_enabled = true;
++		split_normalized = true;
++		break;
+ 	default:
+ 		pr_err("%s: Invalid number of interleaved channels %d.\n",
+ 			__func__, intlv_num_chan);
+ 		goto out_err;
+ 	}
+ 
+-	num_intlv_bits = intlv_num_chan;
+-
+-	if (intlv_num_dies > 2) {
+-		pr_err("%s: Invalid number of interleaved nodes/dies %d.\n",
+-			__func__, intlv_num_dies);
++	/* Assert interleave address bit is 8 or 9 for hashing cases. */
++	if (hash_enabled && intlv_addr_bit != 8 && intlv_addr_bit != 9) {
++		pr_err("%s: Invalid interleave address bit for hashing %d.\n",
++			__func__, intlv_addr_bit);
+ 		goto out_err;
+ 	}
+ 
+-	num_intlv_bits += intlv_num_dies;
+-
+-	/* Add a bit if sockets are interleaved. */
+-	num_intlv_bits += intlv_num_sockets;
++	num_intlv_bits = intlv_num_chan + intlv_num_dies + intlv_num_sockets;
+ 
+ 	/* Assert num_intlv_bits <= 4 */
+ 	if (num_intlv_bits > 4) {
+@@ -788,9 +817,11 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 	}
+ 
+ 	if (num_intlv_bits > 0) {
+-		u64 temp_addr_x, temp_addr_i, temp_addr_y;
+-		u32 reg_sys_fabric_id, cs_fabric_id;
++		u8 cs_fabric_id_msb = (df_version >= 3) ? 13 : 15;
+ 		u8 die_id_bit, sock_id_bit;
++		u64 addr_x, addr_y, addr_z;
++		u8 node_id_shift = 0;
++		u32 cs_fabric_id;
+ 
+ 		/*
+ 		 * This is the fabric id for this coherent slave. Use
+@@ -800,7 +831,7 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 		if (amd_df_indirect_read(nid, 0, DF_F0_FABRICINSTINFO3, umc, &cs_fabric_id))
+ 			goto out_err;
+ 
+-		cs_fabric_id = get_bits(cs_fabric_id, 15, 8);
++		cs_fabric_id = get_bits(cs_fabric_id, cs_fabric_id_msb, 8);
+ 		die_id_bit   = 0;
+ 
+ 		/* If interleaved over more than 1 channel: */
+@@ -808,43 +839,83 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 			die_id_bit = intlv_num_chan;
+ 			cs_mask	   = (1 << die_id_bit) - 1;
+ 			cs_id	   = cs_fabric_id & cs_mask;
++			cs_id	  -= dst_fabric_id & cs_mask;
+ 		}
+ 
+ 		sock_id_bit = die_id_bit;
+ 
+-		if (intlv_num_dies || intlv_num_sockets)
+-			if (amd_df_indirect_read(nid, 1, DF_F1_SYSFABRICID, umc, &reg_sys_fabric_id))
++		if ((intlv_num_dies || intlv_num_sockets) && df_version >= 3) {
++			if (amd_df_indirect_read(nid, 1, DF_F1_SYSFABRICID1, umc, &reg_sys_fabric_id))
+ 				goto out_err;
+ 
++			node_id_shift = get_bits(reg_sys_fabric_id, 3, 0);
++		}
++
+ 		/* If interleaved over more than 1 die. */
+ 		if (intlv_num_dies) {
++			u8 die_id_shift, die_id_mask;
++
+ 			sock_id_bit  = die_id_bit + intlv_num_dies;
+-			die_id_shift = get_bits(reg_sys_fabric_id, 27, 24);
+-			die_id_mask  = get_bits(reg_sys_fabric_id, 15, 8);
++
++			if (df_version >= 3) {
++				die_id_shift = get_bits(reg_sys_fabric_id, 3, 0) + node_id_shift;
++
++				die_id_mask  = get_bits(reg_sys_fabric_id, 18, 16);
++				die_id_mask <<= node_id_shift;
++			} else {
++				die_id_shift = get_bits(reg_sys_fabric_id, 27, 24);
++				die_id_mask  = get_bits(reg_sys_fabric_id, 15, 8);
++			}
+ 
+ 			cs_id |= ((cs_fabric_id & die_id_mask) >> die_id_shift) << die_id_bit;
+ 		}
+ 
+ 		/* If interleaved over more than 1 socket. */
+ 		if (intlv_num_sockets) {
+-			socket_id_shift	= get_bits(reg_sys_fabric_id, 31, 28);
+-			socket_id_mask	= get_bits(reg_sys_fabric_id, 23, 16);
++			u8 socket_id_shift, socket_id_mask;
++
++			if (df_version >= 3) {
++				socket_id_shift	= get_bits(reg_sys_fabric_id, 10, 8);
++				socket_id_shift += node_id_shift;
++
++				socket_id_mask	= get_bits(reg_sys_fabric_id, 26, 24);
++				socket_id_mask <<= node_id_shift;
++			} else {
++				socket_id_shift	= get_bits(reg_sys_fabric_id, 31, 28);
++				socket_id_mask	= get_bits(reg_sys_fabric_id, 23, 16);
++			}
+ 
+ 			cs_id |= ((cs_fabric_id & socket_id_mask) >> socket_id_shift) << sock_id_bit;
+ 		}
+ 
+ 		/*
+ 		 * The pre-interleaved address consists of XXXXXXIIIYYYYY
+-		 * where III is the ID for this CS, and XXXXXXYYYYY are the
+-		 * address bits from the post-interleaved address.
+-		 * "num_intlv_bits" has been calculated to tell us how many "I"
+-		 * bits there are. "intlv_addr_bit" tells us how many "Y" bits
+-		 * there are (where "I" starts).
++		 * or XXXXXXIIZZZIYYY where III is the ID for this CS, and
++		 * XXXXXXZZZYYYYY are the address bits from the post-interleaved
++		 * address. "num_intlv_bits" has been calculated to tell us how
++		 * many "I" bits there are. "intlv_addr_bit" tells us how many
++		 * "Y" bits there are (where "I" starts).
++		 *
++		 * The "split" III is only used in the COD modes, where there
++		 * is one bit I at "intlv_addr_bit", and the remaining CS bits
++		 * are higher up starting at bit 12.
+ 		 */
+-		temp_addr_y = get_bits(ret_addr, intlv_addr_bit-1, 0);
+-		temp_addr_i = (cs_id << intlv_addr_bit);
+-		temp_addr_x = (ret_addr & GENMASK_ULL(63, intlv_addr_bit)) << num_intlv_bits;
+-		ret_addr    = temp_addr_x | temp_addr_i | temp_addr_y;
++		addr_y = get_bits(ret_addr, intlv_addr_bit - 1, 0);
++
++		if (split_normalized) {
++			addr_x = ret_addr & GENMASK_ULL(63, 11);
++			addr_x <<= num_intlv_bits;
++
++			addr_z = ret_addr & GENMASK_ULL(10, intlv_addr_bit);
++			addr_z <<= 1;
++		} else {
++			addr_x = ret_addr & GENMASK_ULL(63, intlv_addr_bit);
++			addr_x <<= num_intlv_bits;
++
++			addr_z = 0;
++		}
++
++		ret_addr = addr_x | addr_z | addr_y;
+ 	}
+ 
+ 	/* Add dram base address */
+@@ -860,18 +931,69 @@ int umc_normaddr_to_sysaddr(u64 norm_addr, u16 nid, u8 umc, u64 *sys_addr)
+ 			ret_addr += (BIT_ULL(32) - dram_hole_base);
+ 	}
+ 
+-	if (hash_enabled) {
+-		hashed_bit =	get_bit(ret_addr, 12) ^
++	/*
++	 * There are three cases for hashing:
++	 * 1) No Hashing
++	 * 2) Legacy Hashing
++	 * 3) Cluster-on-Die (COD) Hashing
++	 */
++	if (!hash_enabled) {
++		/* Fill in the interleave bit. */
++		if (intlv_num_chan)
++			ret_addr |= (cs_id << intlv_addr_bit);
++	} else if (df_version == 2) {
++		/* Legacy 2ch hash. */
++		u8 hashed_bit =	get_bit(ret_addr, 12) ^
+ 				get_bit(ret_addr, 18) ^
+ 				get_bit(ret_addr, 21) ^
+ 				get_bit(ret_addr, 30) ^
+ 				get_bit(cs_id, 0);
+ 
+-		if (hashed_bit != get_bit(ret_addr, intlv_addr_bit))
+-			ret_addr ^= BIT(intlv_addr_bit);
++		ret_addr ^= hashed_bit << intlv_addr_bit;
++	} else {
++		u8 hashed_bit, hash_ctl_64K, hash_ctl_2M, hash_ctl_1G;
++		u32 reg_df_global_ctrl;
++
++		if (amd_df_indirect_read(nid, 0, DF_F0_DFGLOBALCTRL, umc, &reg_df_global_ctrl))
++			goto out_err;
++
++		hash_ctl_64K = get_bit(reg_df_global_ctrl, 20);
++		hash_ctl_2M  = get_bit(reg_df_global_ctrl, 21);
++		hash_ctl_1G  = get_bit(reg_df_global_ctrl, 22);
++
++		/* COD with 2ch, 4ch, or 8ch hash. */
++		hashed_bit =	get_bit(ret_addr, 14) ^
++				(get_bit(ret_addr, 18) & hash_ctl_64K) ^
++				(get_bit(ret_addr, 23) & hash_ctl_2M) ^
++				(get_bit(ret_addr, 32) & hash_ctl_1G) ^
++				get_bit(cs_id, 0);
++
++		ret_addr ^= hashed_bit << intlv_addr_bit;
++
++		/* COD with 4ch or 8ch hash. */
++		if ((intlv_num_chan == 2) || (intlv_num_chan == 3)) {
++			hashed_bit =	get_bit(ret_addr, 12) ^
++					(get_bit(ret_addr, 16) & hash_ctl_64K) ^
++					(get_bit(ret_addr, 21) & hash_ctl_2M) ^
++					(get_bit(ret_addr, 30) & hash_ctl_1G) ^
++					get_bit(cs_id, 1);
++
++			ret_addr ^= hashed_bit << 12;
++		}
++
++		/* COD with 8ch hash. */
++		if (intlv_num_chan == 3) {
++			hashed_bit =	get_bit(ret_addr, 13) ^
++					(get_bit(ret_addr, 17) & hash_ctl_64K) ^
++					(get_bit(ret_addr, 22) & hash_ctl_2M) ^
++					(get_bit(ret_addr, 31) & hash_ctl_1G) ^
++					get_bit(cs_id, 2);
++
++			ret_addr ^= hashed_bit << 13;
++		}
+ 	}
+ 
+-	/* Is calculated system address is above DRAM limit address? */
++	/* Is calculated system address above DRAM limit address? */
+ 	if (ret_addr > dram_limit_addr)
+ 		goto out_err;
+ 

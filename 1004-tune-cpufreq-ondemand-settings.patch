@@ -1,0 +1,33 @@
+From 97b367513d4df4843e1d7764865717dab6652606 Mon Sep 17 00:00:00 2001
+From: torvic9 <torvic9@mailbox.org>
+Date: Tue, 10 Nov 2020 10:47:27 +0100
+Subject: [PATCH] tune cpufreq ondemand settings
+
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ drivers/cpufreq/cpufreq_ondemand.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/cpufreq/cpufreq_ondemand.c b/drivers/cpufreq/cpufreq_ondemand.c
+index ac361a8b1..6bc517b3d 100644
+--- a/drivers/cpufreq/cpufreq_ondemand.c
++++ b/drivers/cpufreq/cpufreq_ondemand.c
+@@ -17,12 +17,12 @@
+ 
+ #include "cpufreq_ondemand.h"
+ 
+ /* On-demand governor macros */
+-#define DEF_FREQUENCY_UP_THRESHOLD		(80)
+-#define DEF_SAMPLING_DOWN_FACTOR		(1)
++#define DEF_FREQUENCY_UP_THRESHOLD		(65)
++#define DEF_SAMPLING_DOWN_FACTOR		(10)
+ #define MAX_SAMPLING_DOWN_FACTOR		(100000)
+-#define MICRO_FREQUENCY_UP_THRESHOLD		(95)
++#define MICRO_FREQUENCY_UP_THRESHOLD		(85)
+ #define MICRO_FREQUENCY_MIN_SAMPLE_RATE		(10000)
+ #define MIN_FREQUENCY_UP_THRESHOLD		(1)
+ #define MAX_FREQUENCY_UP_THRESHOLD		(100)
+ 
+-- 
+2.29.2
+
