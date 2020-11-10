@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=0
 _rc=rc3
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=2
+pkgrel=22
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -76,7 +76,7 @@ validpgpkeys=(
 
 sha256sums=('6d9f639bbfa060ffa35440b3ae4b2242f004cee891c3a03ffcd6b42bb3f9fc23'
             '759d0cb374578762f270a6e308a1b0fb69bf6c283d164d08ad89b98db4649a05'
-            'ae63e76f53c9991bbc6ef03c86763418d034e4083e7eaf108f3b1ad914405d1a'
+            '936402ae0c811fb4f3b0475d8cd680acc4167e9ab7dfc45fca4cf95b1b8ef562'
             'de09b83dc3ec14e23d5fca678ee1f198c00e32c4cb5014b3d1d47aa58e4bb730'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
@@ -114,7 +114,7 @@ _pubkey="$HOME/build/keys/vd510-kernel-pubkey.pem"
 _clang=0
 
 if [[ ${_clang} -eq 1 ]]; then
-	LLVMOPTS="LLVM=1 LLVM_IAS=0"
+	LLVMOPTS="LLVM=1 LLVM_IAS=1"
 	CLANGOPTS="CC=clang LD=ld.lld"
 	source+=('clang-ias-dwarf-fixes.patch' 'clang-lto-20201109.patch')
 	sha256sums+=('254401bc81c5c865f71c8195fb47f7db1b44227a2597f30ec3e83dd006f402fc'
