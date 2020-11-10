@@ -64,8 +64,8 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     #2001-projectc59-${_prjc}.patch::https://gitlab.com/alfredchen/linux-prjc/uploads/e8077274ea1c74e0c9f5bce44be51243/prjc_v5.9-r1.patch
     #2002-projectc59-${_prjc}.patch::https://gitlab.com/alfredchen/linux-prjc/-/commit/c6e352a26de8e46f5737fed2b876516df82adad1.patch
     #
-    # Cachy scheduler (xanmod)
-    # 3001-cachy-5.9-${_cachy}.patch::https://raw.githubusercontent.com/hamadmarri/cachy-sched/master/patches/v5.9/cachy-5.9-${_cachy}.patch
+    # Cachy scheduler
+    #3001-cachy-5.9-${_cachy}.patch::https://raw.githubusercontent.com/hamadmarri/cachy-sched/master/patches/v5.9/cachy-5.9-${_cachy}.patch
     #
 )
 
@@ -114,17 +114,18 @@ _pubkey="$HOME/build/keys/vd510-kernel-pubkey.pem"
 _clang=0
 
 if [[ ${_clang} -eq 1 ]]; then
-	CLANGOPTS="LLVM=1 LLVM_IAS=1"
-	#source+=('clang-lto-20201109.patch')
-	#sha256sums+=('084b5781b65ef285dfc5c779ab08be343ffa42cdc498c6916ad4e593e704db5d')
-	source+=('clang-ias-dwarf-fixes.patch')
-	sha256sums+=('254401bc81c5c865f71c8195fb47f7db1b44227a2597f30ec3e83dd006f402fc')
+	LLVMOPTS="LLVM=1 LLVM_IAS=0"
+	CLANGOPTS="CC=clang LD=ld.lld"
+	source+=('clang-ias-dwarf-fixes.patch' 'clang-lto-20201109.patch')
+	sha256sums+=('254401bc81c5c865f71c8195fb47f7db1b44227a2597f30ec3e83dd006f402fc'
+		'084b5781b65ef285dfc5c779ab08be343ffa42cdc498c6916ad4e593e704db5d')
 else
+	LLVMOPTS=""
 	CLANGOPTS=""
 fi
 
-TBOLD=$(tput bold)
-TNORMAL=$(tput sgr0)
+TB=$(tput bold)
+TN=$(tput sgr0)
 
 prepare() {
 
@@ -133,16 +134,7 @@ prepare() {
   echo "-${_kernelname/-/}" > localversion.10-pkgname
   echo "-${pkgrel}" > localversion.20-pkgrel
 
-  # add latest fixes from stable queue, if needed
-  # http://git.kernel.org/?p=linux/kernel/git/stable/stable-queue.git
-  # enable only if you have "gen-stable-queue-patch.sh" executed before
-  #patch -Np1 -i "${srcdir}/prepatch-${_basekernel}`date +%Y%m%d`"
-
-  echo -e "\n${TBOLD}* APPLYING PATCHES${TNORMAL}"
-  
-  # reverts needed for futex_wait_multiple FIX-ME!
-  #patch -R -Np1 -i ../remove-needless-gotos.revert
-  #patch -R -Np1 -i ../remove-put_futex_key.revert
+  echo -e "\n${TB}* APPLYING PATCHES${TN}"
 
   # apply patch from the source array (should be a pacman feature)
   local filename filename2
@@ -150,18 +142,18 @@ prepare() {
   	if [[ "$filename" =~ \.patch$ || "$filename" =~ \.diff$ ]]; then
 		filename="${filename%%::*}"
 		filename2="${filename#*-}"
-        	echo -e "\n---- Applying patch ${TBOLD}${filename2%%.*}${TNORMAL}:"
+        	echo -e "\n---- Applying patch ${TB}${filename2%%.*}${TN}:"
         	patch -Np1 -i "../${filename}"
   	fi
   done
 
   # kernel config
-  echo -e "\n${TBOLD}* KERNEL CONFIGURATION${TNORMAL}"
+  echo -e "\n${TB}* KERNEL CONFIGURATION${TN}"
   local _config
   echo "---- Select configuration file:"
-  echo "${TBOLD}1)${TNORMAL} Default"
-  echo "${TBOLD}2)${TNORMAL} Zen2"
-  echo "${TBOLD}3)${TNORMAL} X270"
+  echo "${TB}1)${TN} Default"
+  echo "${TB}2)${TN} Zen2"
+  echo "${TB}3)${TN} X270"
   while true ; do
   	read -p "Enter number (1-3): " _config
 	  case ${_config} in
@@ -182,23 +174,23 @@ prepare() {
   fi
 
   # get kernel version
-  make $CLANGOPTS prepare
-  make $CLANGOPTS -s kernelrelease > version
+  make $LLVMOPTS prepare
+  make $LLVMOPTS -s kernelrelease > version
   printf '\n'
   printf "  Prepared %s version %s" "$pkgbase" "$(<version)"
   printf '\n'
   read -p "---- Enter 'y' for nconfig: " NCONFIG
-  [[ $NCONFIG = "y" ]] && make $CLANGOPTS nconfig || continue
+  [[ $NCONFIG = "y" ]] && make $LLVMOPTS nconfig || continue
 
   # rewrite configuration
-  yes "" | make $CLANGOPTS config >/dev/null
+  yes '' | make $LLVMOPTS config >/dev/null
 }
 
 build() {
   cd "${srcdir}/linux-${_basekernel}-${_rc}"
 
   # build!
-  make $CLANGOPTS $MAKEFLAGS LOCALVERSION= bzImage modules
+  make $LLVMOPTS $MAKEFLAGS LOCALVERSION= bzImage modules
   make $CLANGOPTS -C tools/bootconfig
 }
 
@@ -231,7 +223,7 @@ package_linux510-vd() {
   echo "${kernver}" |
     install -Dm644 /dev/stdin "${pkgdir}/usr/lib/modules/${_extramodules}/version"
 
-  echo -e "\n${TBOLD}* INSTALLING MODULES${TNORMAL}"
+  echo -e "\n${TB}* INSTALLING MODULES${TN}"
   make $CLANGOPTS $MAKEFLAGS LOCALVERSION= INSTALL_MOD_PATH="${pkgdir}/usr" INSTALL_MOD_STRIP=1 modules_install
 
   # remove build and source links
@@ -250,7 +242,7 @@ package_linux510-vd-headers() {
   local kernver="$(<version)"
   local _builddir="${pkgdir}/usr/lib/modules/${kernver}/build"
 
-  echo -e "\n${TBOLD}* INSTALLING HEADERS${TNORMAL}"
+  echo -e "\n${TB}* INSTALLING HEADERS${TN}"
   install -Dt "${_builddir}" -m644 Makefile .config Module.symvers System.map version vmlinux localversion.* || exit 32
   install -Dt "${_builddir}/kernel" -m644 kernel/Makefile
   install -Dt "${_builddir}/arch/x86" -m644 "arch/x86/Makefile"
@@ -285,7 +277,7 @@ package_linux510-vd-headers() {
   find . -name Kconfig\* -exec install -Dm644 {} "${_builddir}/{}" \;
 
   # remove unneeded stuff
-  echo -e "\n${TBOLD}* REMOVING UNNEEDED FILES${TNORMAL}"
+  echo -e "\n${TB}* REMOVING UNNEEDED FILES${TN}"
   # remove unneeded architectures
   local _arch
   for _arch in "${_builddir}"/arch/*/; do
@@ -303,7 +295,7 @@ package_linux510-vd-headers() {
   find "${_builddir}" -type f -name '*.o' -printf 'Removing %P\n' -delete
 
   # strip scripts directory
-  echo -e "\n${TBOLD}* STRIPPING${TNORMAL}"
+  echo -e "\n${TB}* STRIPPING${TN}"
   local file
   while read -rd '' file; do
     case "$(file -bi "$file")" in
