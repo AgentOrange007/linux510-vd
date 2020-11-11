@@ -1,18 +1,18 @@
-From 83f0b67b920d19a039666fd86536220ca26e5b0b Mon Sep 17 00:00:00 2001
+From c30cd5060795f1c58c13996d89c1e47b289ae73d Mon Sep 17 00:00:00 2001
 From: torvic9 <torvic9@mailbox.org>
-Date: Tue, 10 Nov 2020 10:54:06 +0100
-Subject: [PATCH] optimize compression options
+Date: Wed, 11 Nov 2020 10:03:13 +0100
+Subject: [PATCH] optimise kernel and module compression
 
 Signed-off-by: torvic9 <torvic9@mailbox.org>
 ---
- Makefile                          | 4 ++--
- arch/x86/boot/compressed/Makefile | 2 +-
- scripts/Makefile.lib              | 6 +++---
- scripts/xz_wrap.sh                | 4 ++--
- 4 files changed, 8 insertions(+), 8 deletions(-)
+ Makefile                          |  4 ++--
+ arch/x86/boot/compressed/Makefile |  2 +-
+ scripts/Makefile.lib              | 12 ++++++------
+ scripts/xz_wrap.sh                |  4 ++--
+ 4 files changed, 11 insertions(+), 11 deletions(-)
 
 diff --git a/Makefile b/Makefile
-index 008aba5f1..c45b47105 100644
+index 008aba5f1..52aadfd23 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -1048,12 +1048,12 @@ export mod_strip_cmd
@@ -21,11 +21,11 @@ index 008aba5f1..c45b47105 100644
  ifdef CONFIG_MODULE_COMPRESS
    ifdef CONFIG_MODULE_COMPRESS_GZIP
 -    mod_compress_cmd = $(KGZIP) -n -f
-+    mod_compress_cmd = $(KGZIP) -5 -n -f
++    mod_compress_cmd = $(KGZIP) -4 -n -f
    endif # CONFIG_MODULE_COMPRESS_GZIP
    ifdef CONFIG_MODULE_COMPRESS_XZ
 -    mod_compress_cmd = $(XZ) -f
-+    mod_compress_cmd = $(XZ) --lzma2=preset=4,dict=2MiB -f
++    mod_compress_cmd = $(XZ) --lzma2=dict=2MiB -f
    endif # CONFIG_MODULE_COMPRESS_XZ
  endif # CONFIG_MODULE_COMPRESS
  export mod_compress_cmd
@@ -46,7 +46,7 @@ index ee249088c..2ff2417d0 100644
  suffix-$(CONFIG_KERNEL_BZIP2)	:= bz2
  suffix-$(CONFIG_KERNEL_LZMA)	:= lzma
 diff --git a/scripts/Makefile.lib b/scripts/Makefile.lib
-index 941337088..85002415a 100644
+index 941337088..9a6fec45f 100644
 --- a/scripts/Makefile.lib
 +++ b/scripts/Makefile.lib
 @@ -269,9 +269,9 @@ cmd_objcopy = $(OBJCOPY) $(OBJCOPYFLAGS) $(OBJCOPYFLAGS_$(@F)) $< $@
@@ -55,18 +55,26 @@ index 941337088..85002415a 100644
  
  quiet_cmd_gzip = GZIP    $@
 -      cmd_gzip = cat $(real-prereqs) | $(KGZIP) -n -f -9 > $@
-+      cmd_gzip = cat $(real-prereqs) | $(KGZIP) -n -f -7 > $@
++      cmd_gzip = cat $(real-prereqs) | $(KGZIP) -6 -n -f > $@
  
  # DTC
  # ---------------------------------------------------------------------------
  DTC ?= $(objtree)/scripts/dtc/dtc
-@@ -375,9 +375,9 @@ quiet_cmd_lzma = LZMA    $@
+@@ -369,15 +369,15 @@ quiet_cmd_bzip2 = BZIP2   $@
+ # Lzma
+ # ---------------------------------------------------------------------------
+ 
+ quiet_cmd_lzma = LZMA    $@
+-      cmd_lzma = { cat $(real-prereqs) | $(LZMA) -9; $(size_append); } > $@
++      cmd_lzma = { cat $(real-prereqs) | $(LZMA) -5; $(size_append); } > $@
+ 
  quiet_cmd_lzo = LZO     $@
-       cmd_lzo = { cat $(real-prereqs) | $(KLZOP) -9; $(size_append); } > $@
+-      cmd_lzo = { cat $(real-prereqs) | $(KLZOP) -9; $(size_append); } > $@
++      cmd_lzo = { cat $(real-prereqs) | $(KLZOP) -7; $(size_append); } > $@
  
  quiet_cmd_lz4 = LZ4     $@
 -      cmd_lz4 = { cat $(real-prereqs) | $(LZ4) -l -c1 stdin stdout; \
-+      cmd_lz4 = { cat $(real-prereqs) | $(LZ4) -6 -l -c stdin stdout; \
++      cmd_lz4 = { cat $(real-prereqs) | $(LZ4) -4 -l -c stdin stdout; \
                    $(size_append); } > $@
  
  # U-Boot mkimage
@@ -77,13 +85,24 @@ index 941337088..85002415a 100644
  
  quiet_cmd_xzmisc = XZMISC  $@
 -      cmd_xzmisc = cat $(real-prereqs) | $(XZ) --check=crc32 --lzma2=dict=1MiB > $@
-+      cmd_xzmisc = cat $(real-prereqs) | $(XZ) --check=crc32 --lzma2=preset=4,dict=2MiB > $@
++      cmd_xzmisc = cat $(real-prereqs) | $(XZ) --check=crc32 --lzma2=dict=2MiB > $@
  
  # ZSTD
  # ---------------------------------------------------------------------------
  # Appends the uncompressed size of the data using size_append. The .zst
+@@ -441,9 +441,9 @@ quiet_cmd_xzmisc = XZMISC  $@
+ # decompression is used, like initramfs decompression, zstd22 should likely not
+ # be used because it would require zstd to allocate a 128 MB buffer.
+ 
+ quiet_cmd_zstd = ZSTD    $@
+-      cmd_zstd = { cat $(real-prereqs) | $(ZSTD) -19; $(size_append); } > $@
++      cmd_zstd = { cat $(real-prereqs) | $(ZSTD) -18 -T2; $(size_append); } > $@
+ 
+ quiet_cmd_zstd22 = ZSTD22  $@
+       cmd_zstd22 = { cat $(real-prereqs) | $(ZSTD) -22 --ultra; $(size_append); } > $@
+ 
 diff --git a/scripts/xz_wrap.sh b/scripts/xz_wrap.sh
-index 76e9cbcfb..bd0030403 100755
+index 76e9cbcfb..3dad850a5 100755
 --- a/scripts/xz_wrap.sh
 +++ b/scripts/xz_wrap.sh
 @@ -9,9 +9,9 @@
@@ -92,7 +111,7 @@ index 76e9cbcfb..bd0030403 100755
  
  BCJ=
 -LZMA2OPTS=
-+LZMA2OPTS="preset=4,dict=16MiB"
++LZMA2OPTS="dict=4MiB"
  
  case $SRCARCH in
  	x86)            BCJ=--x86 ;;

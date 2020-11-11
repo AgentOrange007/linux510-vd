@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=0
 _rc=rc3
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=22
+pkgrel=4
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -50,6 +50,7 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     0013-powercap-enable-rapl-for-fam17h-and-fam19h.patch
     # Nuvoton nc677x driver
     0014-i2c-nuvoton-nc677x-hwmon-driver-git.patch::https://gitlab.com/CalcProgrammer1/OpenRGB/-/raw/master/OpenRGB.patch
+    0015-vt-keyboard-fixes.patch
     #
     # MANJARO Patches
     #
@@ -58,7 +59,7 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     1002-tune-vm-mm-and-vfs-settings.patch
     1003-tune-cfs-settings.patch
     1004-tune-cpufreq-ondemand-settings.patch
-    1005-optimize-compression-options.patch
+    1005-optimise-kernel-and-module-compression.patch
     #
     # Project C (BMQ+PDS)
     #2001-projectc59-${_prjc}.patch::https://gitlab.com/alfredchen/linux-prjc/uploads/e8077274ea1c74e0c9f5bce44be51243/prjc_v5.9-r1.patch
@@ -76,11 +77,11 @@ validpgpkeys=(
 
 sha256sums=('6d9f639bbfa060ffa35440b3ae4b2242f004cee891c3a03ffcd6b42bb3f9fc23'
             '759d0cb374578762f270a6e308a1b0fb69bf6c283d164d08ad89b98db4649a05'
-            '936402ae0c811fb4f3b0475d8cd680acc4167e9ab7dfc45fca4cf95b1b8ef562'
-            'de09b83dc3ec14e23d5fca678ee1f198c00e32c4cb5014b3d1d47aa58e4bb730'
+            'bab5344d0058d39281252417a6783096585b871f990175ba25a73ae8f9e423d6'
+            '96460593e388d240a01b613f41d9fbb1dae9a0f282dc2b3912a316facc0399f2'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
-            '02c6c7aec6579116303291543f557ac1e31424fef1a732a6fe05fcf595708849'
+            'd75bac908423ac749101e39c17676c9d6abe8b42e596d33136cfc293f7a185d6'
             '4e45313d48c2a914b24e5debd7eb6b92b7214513eb06a3bfcc57b437070bf7f0'
             '5fefb657188604fc438ab2c1d3857e564eff4900388aeaacdf8789193984aab2'
             '4976b4de940b27a31fd9b4655abbdc5b61120135b63a822d925ff16e097747bf'
@@ -93,11 +94,12 @@ sha256sums=('6d9f639bbfa060ffa35440b3ae4b2242f004cee891c3a03ffcd6b42bb3f9fc23'
             '8fe4aa91dc4f85b04e78defd6f2b3ec318c7790731951f60b775d0e31faf4e00'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'e7d724ac15daf428aa1e6a03737e5c1d040892d55fda8a66897fcac9323f285c'
+            '4eaf4b72718637dbd6acd7c88215bf4ac7de1f6a7fc2b484ed7b565bfb8651b1'
             'af447298e1c2f2dbad913df54cac31b1923acbb2fa6dcaf8f397ce3e4f319970'
             'f7a36231b794022d49e53f464d25e48f2eebf6266c2cbe5756c63aa3bf03bae7'
             'acca50a9ffee480f29bd7de6e8b5963dc0d37d3103871d75bcffdb2acce6c82d'
             '5df5b9a78427d3ab031b71f0f6a5a5ebb601fa11ff51ba65b8c2c82b0f354d4b'
-            '161548d5116c32e62f261b21156369b544e1eddbacbf487dfe36c14bff6107bf')
+            'a1dce936358ba3e95eaa9b18f6b53c5d643885f88cac4e538cdb7fa31fb00011')
 
 export KBUILD_BUILD_USER=$pkgbase
 export KBUILD_BUILD_HOST=eos
@@ -110,7 +112,7 @@ _key="$HOME/build/keys/vd510-kernel-key.pem"
 _pubkey="$HOME/build/keys/vd510-kernel-pubkey.pem"
 
 # custom clang path
-# export PATH=/opt/clang11/bin:$PATH
+export PATH=/opt/clang11/bin:$PATH
 _clang=0
 
 if [[ ${_clang} -eq 1 ]]; then
