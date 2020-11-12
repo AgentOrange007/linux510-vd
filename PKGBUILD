@@ -50,7 +50,15 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     0013-powercap-enable-rapl-for-fam17h-and-fam19h.patch
     # Nuvoton nc677x driver
     0014-i2c-nuvoton-nc677x-hwmon-driver-git.patch::https://gitlab.com/CalcProgrammer1/OpenRGB/-/raw/master/OpenRGB.patch
+    # vt fixes
     0015-vt-keyboard-fixes.patch
+    # AMD enhancements
+    0016-dma-add-support-for-amd-ptdma-controller-driver.patch
+    0017-x86-set-and-use-cpu_die_id-on-amd-based-systems.patch
+    # intel pstate fix
+    0018-cpufreq-intel_pstate-handle-powersave-gov-correctly-in-passive-mode-with-hwp.patch
+    # page_poison fixes
+    0019-mm-page_poison-fixes-next.patch
     #
     # MANJARO Patches
     #
@@ -60,6 +68,8 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     1003-tune-cfs-settings.patch
     1004-tune-cpufreq-ondemand-settings.patch
     1005-optimise-kernel-and-module-compression.patch
+    # ntfs3 driver
+    1006-ntfs-rw-gpl-driver-implementation-by-paragon.patch
     #
     # Project C (BMQ+PDS)
     #2001-projectc59-${_prjc}.patch::https://gitlab.com/alfredchen/linux-prjc/uploads/e8077274ea1c74e0c9f5bce44be51243/prjc_v5.9-r1.patch
@@ -95,11 +105,16 @@ sha256sums=('6d9f639bbfa060ffa35440b3ae4b2242f004cee891c3a03ffcd6b42bb3f9fc23'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'e7d724ac15daf428aa1e6a03737e5c1d040892d55fda8a66897fcac9323f285c'
             '4eaf4b72718637dbd6acd7c88215bf4ac7de1f6a7fc2b484ed7b565bfb8651b1'
+            '1f47d3e3956c41b47656f675a90fad9e318c7133ffe663dc0fd2c9aa0fbfeb3e'
+            '162049ed45fbd4e0e2e8bc566978df0b39baece6f32b162c24fe742ecb441589'
+            '3b79e630b1aa43141efc0179d547595deecad1393df315937ce930c350ccfa23'
+            'a63e51c72ce769b6abdf71408a8556f7fc8eb96078e3173f0d07f4c45929d602'
             'af447298e1c2f2dbad913df54cac31b1923acbb2fa6dcaf8f397ce3e4f319970'
             'f7a36231b794022d49e53f464d25e48f2eebf6266c2cbe5756c63aa3bf03bae7'
             'acca50a9ffee480f29bd7de6e8b5963dc0d37d3103871d75bcffdb2acce6c82d'
             '5df5b9a78427d3ab031b71f0f6a5a5ebb601fa11ff51ba65b8c2c82b0f354d4b'
-            'a1dce936358ba3e95eaa9b18f6b53c5d643885f88cac4e538cdb7fa31fb00011')
+            'a1dce936358ba3e95eaa9b18f6b53c5d643885f88cac4e538cdb7fa31fb00011'
+            '5c6528ebb4c055fb280496b71ff5cf00d8b4948cf98d4a617a3d0f7af9ee05ba')
 
 export KBUILD_BUILD_USER=$pkgbase
 export KBUILD_BUILD_HOST=eos
@@ -112,11 +127,11 @@ _key="$HOME/build/keys/vd510-kernel-key.pem"
 _pubkey="$HOME/build/keys/vd510-kernel-pubkey.pem"
 
 # custom clang path
-export PATH=/opt/clang11/bin:$PATH
+# export PATH=/opt/clang11/bin:$PATH
 _clang=0
 
 if [[ ${_clang} -eq 1 ]]; then
-	LLVMOPTS="LLVM=1 LLVM_IAS=1"
+	LLVMOPTS="LLVM=1 LLVM_IAS=0"
 	CLANGOPTS="CC=clang LD=ld.lld"
 	source+=('clang-ias-dwarf-fixes.patch' 'clang-lto-20201109.patch')
 	sha256sums+=('254401bc81c5c865f71c8195fb47f7db1b44227a2597f30ec3e83dd006f402fc'
