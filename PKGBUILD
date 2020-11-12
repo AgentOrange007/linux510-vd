@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=0
 _rc=rc3
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=4
+pkgrel=5
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -91,7 +91,7 @@ sha256sums=('6d9f639bbfa060ffa35440b3ae4b2242f004cee891c3a03ffcd6b42bb3f9fc23'
             '96460593e388d240a01b613f41d9fbb1dae9a0f282dc2b3912a316facc0399f2'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
-            'd75bac908423ac749101e39c17676c9d6abe8b42e596d33136cfc293f7a185d6'
+            'd599bbf5fcd189590357bff081e73273161f280f3bb59288d5afc572cdb2a496'
             '4e45313d48c2a914b24e5debd7eb6b92b7214513eb06a3bfcc57b437070bf7f0'
             '5fefb657188604fc438ab2c1d3857e564eff4900388aeaacdf8789193984aab2'
             '4976b4de940b27a31fd9b4655abbdc5b61120135b63a822d925ff16e097747bf'
@@ -109,7 +109,7 @@ sha256sums=('6d9f639bbfa060ffa35440b3ae4b2242f004cee891c3a03ffcd6b42bb3f9fc23'
             '162049ed45fbd4e0e2e8bc566978df0b39baece6f32b162c24fe742ecb441589'
             '3b79e630b1aa43141efc0179d547595deecad1393df315937ce930c350ccfa23'
             'a63e51c72ce769b6abdf71408a8556f7fc8eb96078e3173f0d07f4c45929d602'
-            'af447298e1c2f2dbad913df54cac31b1923acbb2fa6dcaf8f397ce3e4f319970'
+            '2dce2f5ca2d583af3cc843caa8ba94d7e549a3f2cbbeeb5c8724a90a2d68112d'
             'f7a36231b794022d49e53f464d25e48f2eebf6266c2cbe5756c63aa3bf03bae7'
             'acca50a9ffee480f29bd7de6e8b5963dc0d37d3103871d75bcffdb2acce6c82d'
             '5df5b9a78427d3ab031b71f0f6a5a5ebb601fa11ff51ba65b8c2c82b0f354d4b'
