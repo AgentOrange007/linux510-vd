@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=0
 _rc=rc3
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=5
+pkgrel=8
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -31,7 +31,7 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     #
     # patchsets
     0001-sched-tip-picks-20201110.patch
-    0002-sched-delayed-thread-migration.patch
+    #0002-sched-delayed-thread-migration.patch -- disabled because of core dumps
     0003-vfs-hho-patches.patch
     0004-update-to-zstd-146.patch
     0005-futex-proton-v3-sirlucjan.patch
@@ -87,12 +87,11 @@ validpgpkeys=(
 
 sha256sums=('6d9f639bbfa060ffa35440b3ae4b2242f004cee891c3a03ffcd6b42bb3f9fc23'
             '759d0cb374578762f270a6e308a1b0fb69bf6c283d164d08ad89b98db4649a05'
-            'bab5344d0058d39281252417a6783096585b871f990175ba25a73ae8f9e423d6'
-            '96460593e388d240a01b613f41d9fbb1dae9a0f282dc2b3912a316facc0399f2'
+            '3cf104dfff2205555172e5c7d1e592ae02f606677c8b74ccb45a3b831e4f1818'
+            'd4967abb03d2514eac9097f7b7ae29d23dad18d024deeb0e14efb9ae17d96038'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
             'd599bbf5fcd189590357bff081e73273161f280f3bb59288d5afc572cdb2a496'
-            '4e45313d48c2a914b24e5debd7eb6b92b7214513eb06a3bfcc57b437070bf7f0'
             '5fefb657188604fc438ab2c1d3857e564eff4900388aeaacdf8789193984aab2'
             '4976b4de940b27a31fd9b4655abbdc5b61120135b63a822d925ff16e097747bf'
             'd2d114ec89abf5f8f02564f7bf66a8f6a5c119fd51340feef5a53c0999388a21'
@@ -114,7 +113,8 @@ sha256sums=('6d9f639bbfa060ffa35440b3ae4b2242f004cee891c3a03ffcd6b42bb3f9fc23'
             'acca50a9ffee480f29bd7de6e8b5963dc0d37d3103871d75bcffdb2acce6c82d'
             '5df5b9a78427d3ab031b71f0f6a5a5ebb601fa11ff51ba65b8c2c82b0f354d4b'
             'a1dce936358ba3e95eaa9b18f6b53c5d643885f88cac4e538cdb7fa31fb00011'
-            '5c6528ebb4c055fb280496b71ff5cf00d8b4948cf98d4a617a3d0f7af9ee05ba')
+            '5c6528ebb4c055fb280496b71ff5cf00d8b4948cf98d4a617a3d0f7af9ee05ba'
+)
 
 export KBUILD_BUILD_USER=$pkgbase
 export KBUILD_BUILD_HOST=eos
