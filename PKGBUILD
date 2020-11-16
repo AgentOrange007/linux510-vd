@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=0
 _rc=rc4
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=1
+pkgrel=2
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -55,6 +55,8 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     # AMD enhancements
     0016-dma-add-support-for-amd-ptdma-controller-driver.patch
     0017-x86-set-and-use-cpu_die_id-on-amd-based-systems.patch
+    # little inlining fix for gcc/asm
+    0018-asm-force-inlining-of-get_order.patch
     #
     # MANJARO Patches
     #
@@ -72,8 +74,10 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     #2002-projectc59-${_prjc}.patch::https://gitlab.com/alfredchen/linux-prjc/-/commit/c6e352a26de8e46f5737fed2b876516df82adad1.patch
     #
     # Cachy scheduler
-    #3001-cachy-5.9-${_cachy}.patch::https://raw.githubusercontent.com/hamadmarri/cachy-sched/master/patches/v5.9/cachy-5.9-${_cachy}.patch
+    #2001-cachy-5.9-${_cachy}.patch::https://raw.githubusercontent.com/hamadmarri/cachy-sched/master/patches/v5.9/cachy-5.9-${_cachy}.patch
     #
+    # i10 i/o scheduler
+    #3001-i10-io-sched.patch::https://raw.githubusercontent.com/i10-kernel/upstream-linux/master/0001-iosched-Add-i10-I-O-Scheduler.patch
 )
 
 validpgpkeys=(
@@ -102,6 +106,7 @@ sha256sums=('8b5e6fdbb6654b90f36c93dc1b4adafce30e37612424eb9f6fc19aa3264586b9'
             '4eaf4b72718637dbd6acd7c88215bf4ac7de1f6a7fc2b484ed7b565bfb8651b1'
             '1f47d3e3956c41b47656f675a90fad9e318c7133ffe663dc0fd2c9aa0fbfeb3e'
             '162049ed45fbd4e0e2e8bc566978df0b39baece6f32b162c24fe742ecb441589'
+            'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
             '2dce2f5ca2d583af3cc843caa8ba94d7e549a3f2cbbeeb5c8724a90a2d68112d'
             'f7a36231b794022d49e53f464d25e48f2eebf6266c2cbe5756c63aa3bf03bae7'
             'acca50a9ffee480f29bd7de6e8b5963dc0d37d3103871d75bcffdb2acce6c82d'
