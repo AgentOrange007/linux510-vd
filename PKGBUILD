@@ -9,9 +9,9 @@ pkgname=('linux510-vd' 'linux510-vd-headers')
 _basekernel=5.10
 _kernelname=-vd
 _sub=0
-_rc=rc3
+_rc=rc4
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=8
+pkgrel=1
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -30,7 +30,7 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     #"prepatch-${_basekernel/./}-g${_stablequeue}.patch"
     #
     # patchsets
-    0001-sched-tip-picks-20201110.patch
+    0001-sched-tip-picks-20201116.patch
     #0002-sched-delayed-thread-migration.patch -- disabled because of core dumps
     0003-vfs-hho-patches.patch
     0004-update-to-zstd-146.patch
@@ -44,8 +44,8 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     # Clear Linux
     0010-clearlinux-tweak-intel-cpuidle.patch
     0011-clearlinux-add-config-opt-for-raid6-bench.patch
-    # fix barrier_data on clang
-    0012-fix-barrier_data-on-clang.patch
+    # page_poison fixes
+    0012-mm-page_poison-fixes-next.patch
     # RAPL for AMD 17h+19h
     0013-powercap-enable-rapl-for-fam17h-and-fam19h.patch
     # Nuvoton nc677x driver
@@ -55,10 +55,6 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     # AMD enhancements
     0016-dma-add-support-for-amd-ptdma-controller-driver.patch
     0017-x86-set-and-use-cpu_die_id-on-amd-based-systems.patch
-    # intel pstate fix
-    0018-cpufreq-intel_pstate-handle-powersave-gov-correctly-in-passive-mode-with-hwp.patch
-    # page_poison fixes
-    0019-mm-page_poison-fixes-next.patch
     #
     # MANJARO Patches
     #
@@ -85,13 +81,13 @@ validpgpkeys=(
   '647F28654894E3BD457199BE38DBBDC86092693E'  # Greg Kroah-Hartman
 )
 
-sha256sums=('6d9f639bbfa060ffa35440b3ae4b2242f004cee891c3a03ffcd6b42bb3f9fc23'
+sha256sums=('8b5e6fdbb6654b90f36c93dc1b4adafce30e37612424eb9f6fc19aa3264586b9'
             '759d0cb374578762f270a6e308a1b0fb69bf6c283d164d08ad89b98db4649a05'
             '3cf104dfff2205555172e5c7d1e592ae02f606677c8b74ccb45a3b831e4f1818'
             'd4967abb03d2514eac9097f7b7ae29d23dad18d024deeb0e14efb9ae17d96038'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
-            'd599bbf5fcd189590357bff081e73273161f280f3bb59288d5afc572cdb2a496'
+            '7a60742214f002407b9b1908068f6e93bcb74a798b1598aeff7078f86e5fee75'
             '5fefb657188604fc438ab2c1d3857e564eff4900388aeaacdf8789193984aab2'
             '4976b4de940b27a31fd9b4655abbdc5b61120135b63a822d925ff16e097747bf'
             'd2d114ec89abf5f8f02564f7bf66a8f6a5c119fd51340feef5a53c0999388a21'
@@ -100,21 +96,18 @@ sha256sums=('6d9f639bbfa060ffa35440b3ae4b2242f004cee891c3a03ffcd6b42bb3f9fc23'
             'b0fa9afb5505298ba88dae3cc48d1efa0b5e8482e289122c3435ac7a7505fa32'
             'b78ab97a629579ebc27ff175eacc9162a07c9b925cebd91099c97ef509bd117d'
             'b817e7da8f4901cf2dda0f2fe7b9d8243f32a42d5729e953521ef18eec7a8eb9'
-            '8fe4aa91dc4f85b04e78defd6f2b3ec318c7790731951f60b775d0e31faf4e00'
+            'a63e51c72ce769b6abdf71408a8556f7fc8eb96078e3173f0d07f4c45929d602'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'e7d724ac15daf428aa1e6a03737e5c1d040892d55fda8a66897fcac9323f285c'
             '4eaf4b72718637dbd6acd7c88215bf4ac7de1f6a7fc2b484ed7b565bfb8651b1'
             '1f47d3e3956c41b47656f675a90fad9e318c7133ffe663dc0fd2c9aa0fbfeb3e'
             '162049ed45fbd4e0e2e8bc566978df0b39baece6f32b162c24fe742ecb441589'
-            '3b79e630b1aa43141efc0179d547595deecad1393df315937ce930c350ccfa23'
-            'a63e51c72ce769b6abdf71408a8556f7fc8eb96078e3173f0d07f4c45929d602'
             '2dce2f5ca2d583af3cc843caa8ba94d7e549a3f2cbbeeb5c8724a90a2d68112d'
             'f7a36231b794022d49e53f464d25e48f2eebf6266c2cbe5756c63aa3bf03bae7'
             'acca50a9ffee480f29bd7de6e8b5963dc0d37d3103871d75bcffdb2acce6c82d'
             '5df5b9a78427d3ab031b71f0f6a5a5ebb601fa11ff51ba65b8c2c82b0f354d4b'
             'a1dce936358ba3e95eaa9b18f6b53c5d643885f88cac4e538cdb7fa31fb00011'
-            '5c6528ebb4c055fb280496b71ff5cf00d8b4948cf98d4a617a3d0f7af9ee05ba'
-)
+            '5c6528ebb4c055fb280496b71ff5cf00d8b4948cf98d4a617a3d0f7af9ee05ba')
 
 export KBUILD_BUILD_USER=$pkgbase
 export KBUILD_BUILD_HOST=eos
@@ -133,9 +126,9 @@ _clang=0
 if [[ ${_clang} -eq 1 ]]; then
 	LLVMOPTS="LLVM=1 LLVM_IAS=0"
 	CLANGOPTS="CC=clang LD=ld.lld"
-	source+=('clang-ias-dwarf-fixes.patch' 'clang-lto-20201109.patch')
+	source+=('clang-ias-dwarf-fixes.patch' 'clang-lto-20201114.patch')
 	sha256sums+=('254401bc81c5c865f71c8195fb47f7db1b44227a2597f30ec3e83dd006f402fc'
-		'084b5781b65ef285dfc5c779ab08be343ffa42cdc498c6916ad4e593e704db5d')
+		'a4af47587feb9bd6414569b1d2672f63f411ff166c539d95137164843c11fde5')
 else
 	LLVMOPTS=""
 	CLANGOPTS=""
