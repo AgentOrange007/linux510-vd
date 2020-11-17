@@ -9,8 +9,8 @@ Signed-off-by: torvic9 <torvic9@mailbox.org>
  drivers/acpi/Makefile              |   2 +
  drivers/acpi/acpi_call/Kconfig     |   6 +
  drivers/acpi/acpi_call/Makefile    |   2 +
- drivers/acpi/acpi_call/acpi_call.c | 399 +++++++++++++++++++++++++++++
- 5 files changed, 410 insertions(+)
+ drivers/acpi/acpi_call/acpi_call.c | 439 +++++++++++++++++++++++++++++
+ 5 files changed, 450 insertions(+)
  create mode 100644 drivers/acpi/acpi_call/Kconfig
  create mode 100644 drivers/acpi/acpi_call/Makefile
  create mode 100644 drivers/acpi/acpi_call/acpi_call.c
@@ -66,8 +66,9 @@ new file mode 100644
 index 000000000..e1ebd04ce
 --- /dev/null
 +++ b/drivers/acpi/acpi_call/acpi_call.c
-@@ -0,0 +1,438 @@
+@@ -0,0 +1,439 @@
 +/* Copyright (c) 2010: Michal Kottman */
++/* adjustments by NixOS community */
 +/* small adjustments by torvic9 */
 +
 +#include <linux/module.h>
@@ -507,4 +508,3 @@ index 000000000..e1ebd04ce
 +MODULE_LICENSE("GPL");
 -- 
 2.29.2
-
