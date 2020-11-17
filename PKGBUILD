@@ -30,8 +30,9 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     #"prepatch-${_basekernel/./}-g${_stablequeue}.patch"
     #
     # patchsets
-    0001-sched-tip-picks-20201116.patch
-    #0002-sched-delayed-thread-migration.patch -- disabled because of core dumps
+    0001-sched-tip-picks-20201117.patch
+    0002-sched-core-add-missing-completion-for-affine_move_task-waiters.patch
+    #SPLAT-sched-delayed-thread-migration.patch -- disabled because of core dumps
     0003-vfs-hho-patches.patch
     0004-update-to-zstd-146.patch
     0005-futex-futex_wait_multiple-krisman.patch
@@ -91,7 +92,8 @@ sha256sums=('8b5e6fdbb6654b90f36c93dc1b4adafce30e37612424eb9f6fc19aa3264586b9'
             '368dd0d16b05f2e91a64a80f507692a751f4308079cdd8aef3f2e3166be56457'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
-            '7a60742214f002407b9b1908068f6e93bcb74a798b1598aeff7078f86e5fee75'
+            '75334d305c0d1ee4f62e2d7e0d2e58bec149a44e7950f5663a3ca3be56a21fee'
+            '9a523d1e3b2a89fa6c92bf87e5121d26da539d3b5d4e8f0e3174aa5050f89401'
             '5fefb657188604fc438ab2c1d3857e564eff4900388aeaacdf8789193984aab2'
             '4976b4de940b27a31fd9b4655abbdc5b61120135b63a822d925ff16e097747bf'
             'b86758554105a11900e60b1f83bd272aee8ce3af5c62a382160637844ee4f2a5'
@@ -132,9 +134,9 @@ _clang=0
 if [[ ${_clang} -eq 1 ]]; then
 	LLVMOPTS="LLVM=1 LLVM_IAS=0"
 	CLANGOPTS="CC=clang LD=ld.lld"
-	source+=('clang-ias-dwarf-fixes.patch' 'clang-lto-20201114.patch')
+	source+=('clang-ias-dwarf-fixes.patch' 'clang-lto-20201116.patch')
 	sha256sums+=('254401bc81c5c865f71c8195fb47f7db1b44227a2597f30ec3e83dd006f402fc'
-		'a4af47587feb9bd6414569b1d2672f63f411ff166c539d95137164843c11fde5')
+		'38f34d380282aba44f0b7b1d91e4f0872514d8d45736fa7e50cd2f77c23adcfc')
 else
 	LLVMOPTS=""
 	CLANGOPTS=""
