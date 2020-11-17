@@ -34,8 +34,8 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     #0002-sched-delayed-thread-migration.patch -- disabled because of core dumps
     0003-vfs-hho-patches.patch
     0004-update-to-zstd-146.patch
-    0005-futex-proton-v3-sirlucjan.patch
-    #0006-syscall-user-dispatch-v6.patch
+    0005-futex-futex_wait_multiple-krisman.patch
+    0006-remove-tif_ia32-and-add-syscall_work.patch
     # Arch patches
     0007-arch-patches510-${_archpatch}.patch::https://raw.githubusercontent.com/sirlucjan/kernel-patches/master/5.9/arch-patches-v5/0001-ZEN-Add-sysctl-and-CONFIG-to-disallow-unprivileged-C.patch
     # CPU patches
@@ -94,7 +94,8 @@ sha256sums=('8b5e6fdbb6654b90f36c93dc1b4adafce30e37612424eb9f6fc19aa3264586b9'
             '7a60742214f002407b9b1908068f6e93bcb74a798b1598aeff7078f86e5fee75'
             '5fefb657188604fc438ab2c1d3857e564eff4900388aeaacdf8789193984aab2'
             '4976b4de940b27a31fd9b4655abbdc5b61120135b63a822d925ff16e097747bf'
-            'd2d114ec89abf5f8f02564f7bf66a8f6a5c119fd51340feef5a53c0999388a21'
+            'b86758554105a11900e60b1f83bd272aee8ce3af5c62a382160637844ee4f2a5'
+            '884eebb8472f31d9d19e82acf75ce003202c9462f34bc6eefbff7df7b0e2b2d2'
             'b8e9973780dd75f630733a6e323897486d4d9f27d63ebefac48190e247767072'
             '429b41a987aa1a3b4975474d8b3ca2817a418435f4886e747140deed978ce284'
             'b0fa9afb5505298ba88dae3cc48d1efa0b5e8482e289122c3435ac7a7505fa32'
