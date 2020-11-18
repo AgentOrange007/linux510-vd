@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=0
 _rc=rc4
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=2
+pkgrel=3
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -29,56 +29,64 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     # Prepatch from stable-queue
     #"prepatch-${_basekernel/./}-g${_stablequeue}.patch"
     #
-    # patchsets
+    # sched/core patches
     0001-sched-tip-picks-20201117.patch
     0002-sched-core-add-missing-completion-for-affine_move_task-waiters.patch
     #SPLAT-sched-delayed-thread-migration.patch -- disabled because of core dumps
+    # vfs patch from hho
     0003-vfs-hho-patches.patch
+    # zstd 1.4.6 from terrelln
     0004-update-to-zstd-146.patch
+    # futex_wait_multiple
     0005-futex-futex_wait_multiple-krisman.patch
-    0006-remove-tif_ia32-and-add-syscall_work.patch
     # Arch patches
-    0007-arch-patches510-${_archpatch}.patch::https://raw.githubusercontent.com/sirlucjan/kernel-patches/master/5.9/arch-patches-v5/0001-ZEN-Add-sysctl-and-CONFIG-to-disallow-unprivileged-C.patch
+    0006-arch-patches510-${_archpatch}.patch::https://raw.githubusercontent.com/sirlucjan/kernel-patches/master/5.9/arch-patches-v5/0001-ZEN-Add-sysctl-and-CONFIG-to-disallow-unprivileged-C.patch
     # CPU patches
-    0008-graysky-cpu-optimizations.patch
-    0009-init-kconfig-enable-O3.patch
+    0007-graysky-cpu-optimizations.patch
+    #0008-init-kconfig-enable-O3.patch
+    0008-enable-O3-for-all-archs-and-add-option-for-O1.patch
     # Clear Linux
-    0010-clearlinux-tweak-intel-cpuidle.patch
-    0011-clearlinux-add-config-opt-for-raid6-bench.patch
+    0009-clearlinux-tweak-intel-cpuidle.patch
+    0010-clearlinux-add-config-opt-for-raid6-bench.patch
     # page_poison fixes
-    0012-mm-page_poison-fixes-next.patch
+    0011-mm-page_poison-fixes-next.patch
     # RAPL for AMD 17h+19h
-    0013-powercap-enable-rapl-for-fam17h-and-fam19h.patch
+    0012-powercap-enable-rapl-for-fam17h-and-fam19h.patch
     # Nuvoton nc677x driver
-    0014-i2c-nuvoton-nc677x-hwmon-driver-git.patch::https://gitlab.com/CalcProgrammer1/OpenRGB/-/raw/master/OpenRGB.patch
+    0013-i2c-nuvoton-nc677x-hwmon-driver-git.patch::https://gitlab.com/CalcProgrammer1/OpenRGB/-/raw/master/OpenRGB.patch
     # vt fixes
-    0015-vt-keyboard-fixes.patch
+    0014-vt-keyboard-fixes.patch
     # AMD enhancements
-    0016-dma-add-support-for-amd-ptdma-controller-driver.patch
-    0017-x86-set-and-use-cpu_die_id-on-amd-based-systems.patch
+    0015-dma-add-support-for-amd-ptdma-controller-driver.patch
+    0016-x86-set-and-use-cpu_die_id-on-amd-based-systems.patch
     # little inlining fix for gcc/asm
-    0018-asm-force-inlining-of-get_order.patch
+    0017-asm-force-inlining-of-get_order.patch
+    #
+    # syscall_work and syscall user dispatcher with necessary patches from tip.git
+    1001-x86-entry-20201029.patch
+    1002-core-entry-20201116.patch
+    1003-syscall-user-dispatcher-v7.patch
     #
     # MANJARO Patches
     #
     # vd patches
-    1001-add-acpi_call-module.patch
-    1002-tune-vm-mm-and-vfs-settings.patch
-    1003-tune-cfs-settings.patch
-    1004-tune-cpufreq-ondemand-settings.patch
-    1005-optimise-kernel-and-module-compression.patch
+    2001-add-acpi_call-module.patch
+    2002-tune-vm-mm-and-vfs-settings.patch
+    2003-tune-cfs-settings.patch
+    2004-tune-cpufreq-ondemand-settings.patch
+    2005-optimise-kernel-and-module-compression.patch
     # ntfs3 driver
-    1006-ntfs-rw-gpl-driver-implementation-by-paragon.patch
+    2006-ntfs-rw-gpl-driver-implementation-by-paragon.patch
     #
     # Project C (BMQ+PDS)
-    #2001-projectc59-${_prjc}.patch::https://gitlab.com/alfredchen/linux-prjc/uploads/e8077274ea1c74e0c9f5bce44be51243/prjc_v5.9-r1.patch
-    #2002-projectc59-${_prjc}.patch::https://gitlab.com/alfredchen/linux-prjc/-/commit/c6e352a26de8e46f5737fed2b876516df82adad1.patch
+    #3001-projectc510-${_prjc}.patch::https://gitlab.com/alfredchen/linux-prjc/uploads/e8077274ea1c74e0c9f5bce44be51243/prjc_v5.9-r1.patch
+    #3002-projectc510-${_prjc}.patch::https://gitlab.com/alfredchen/linux-prjc/-/commit/c6e352a26de8e46f5737fed2b876516df82adad1.patch
     #
     # Cachy scheduler
-    #2001-cachy-5.9-${_cachy}.patch::https://raw.githubusercontent.com/hamadmarri/cachy-sched/master/patches/v5.9/cachy-5.9-${_cachy}.patch
+    #3001-cachy-5.9-${_cachy}.patch::https://raw.githubusercontent.com/hamadmarri/cachy-sched/master/patches/v5.9/cachy-5.9-${_cachy}.patch
     #
     # i10 i/o scheduler
-    #3001-i10-io-sched.patch::https://raw.githubusercontent.com/i10-kernel/upstream-linux/master/0001-iosched-Add-i10-I-O-Scheduler.patch
+    #4001-i10-io-sched.patch::https://raw.githubusercontent.com/i10-kernel/upstream-linux/master/0001-iosched-Add-i10-I-O-Scheduler.patch
 )
 
 validpgpkeys=(
@@ -97,10 +105,9 @@ sha256sums=('8b5e6fdbb6654b90f36c93dc1b4adafce30e37612424eb9f6fc19aa3264586b9'
             '5fefb657188604fc438ab2c1d3857e564eff4900388aeaacdf8789193984aab2'
             '4976b4de940b27a31fd9b4655abbdc5b61120135b63a822d925ff16e097747bf'
             'b86758554105a11900e60b1f83bd272aee8ce3af5c62a382160637844ee4f2a5'
-            '884eebb8472f31d9d19e82acf75ce003202c9462f34bc6eefbff7df7b0e2b2d2'
             'b8e9973780dd75f630733a6e323897486d4d9f27d63ebefac48190e247767072'
             '429b41a987aa1a3b4975474d8b3ca2817a418435f4886e747140deed978ce284'
-            'b0fa9afb5505298ba88dae3cc48d1efa0b5e8482e289122c3435ac7a7505fa32'
+            '3d38fc4052b999b67aaed9fe9a4ba6ffd778ffbf7e94a66d5577391dbd08d12a'
             'b78ab97a629579ebc27ff175eacc9162a07c9b925cebd91099c97ef509bd117d'
             'b817e7da8f4901cf2dda0f2fe7b9d8243f32a42d5729e953521ef18eec7a8eb9'
             'a63e51c72ce769b6abdf71408a8556f7fc8eb96078e3173f0d07f4c45929d602'
@@ -110,6 +117,9 @@ sha256sums=('8b5e6fdbb6654b90f36c93dc1b4adafce30e37612424eb9f6fc19aa3264586b9'
             '1f47d3e3956c41b47656f675a90fad9e318c7133ffe663dc0fd2c9aa0fbfeb3e'
             '162049ed45fbd4e0e2e8bc566978df0b39baece6f32b162c24fe742ecb441589'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
+            '95bcb856f9b8b787703ea39b484661ef31341f0e218d863f8450975c29796516'
+            '0a685c6e24c900a8d77c7889f07a451ed28264665082929c61713fceba2ccddf'
+            '95cafe60c42f94d0f73207c7c5a97f8da9078482a8ac26f063e628697e28b49e'
             '7fd689f4ec88364d1ac00007e6f1e273ee9b53cae187e0f70e7f810303dc9303'
             'f7a36231b794022d49e53f464d25e48f2eebf6266c2cbe5756c63aa3bf03bae7'
             'acca50a9ffee480f29bd7de6e8b5963dc0d37d3103871d75bcffdb2acce6c82d'
@@ -134,9 +144,9 @@ _clang=0
 if [[ ${_clang} -eq 1 ]]; then
 	LLVMOPTS="LLVM=1 LLVM_IAS=0"
 	CLANGOPTS="CC=clang LD=ld.lld"
-	source+=('clang-ias-dwarf-fixes.patch' 'clang-lto-20201116.patch')
+	source+=('clang-ias-dwarf-fixes.patch' 'clang-lto-20201117.patch')
 	sha256sums+=('254401bc81c5c865f71c8195fb47f7db1b44227a2597f30ec3e83dd006f402fc'
-		'38f34d380282aba44f0b7b1d91e4f0872514d8d45736fa7e50cd2f77c23adcfc')
+		'0a30c2f0428d3dbf71e7f53b9bb832a2dd0ac3ce1c7d38569a12bb60f4c752eb')
 else
 	LLVMOPTS=""
 	CLANGOPTS=""

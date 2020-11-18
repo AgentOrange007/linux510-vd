@@ -1,0 +1,58 @@
+From 02c1cc5866e6bff1ad10149ff20b37c0d8b629af Mon Sep 17 00:00:00 2001
+From: torvic9 <torvic9@mailbox.org>
+Date: Wed, 18 Nov 2020 11:22:20 +0100
+Subject: [PATCH] enable O3 for all archs and add option for O1
+
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ Makefile     | 2 ++
+ init/Kconfig | 7 ++++++-
+ 2 files changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/Makefile b/Makefile
+index e2c3f65c4..ab2e639fa 100644
+--- a/Makefile
++++ b/Makefile
+@@ -739,8 +739,10 @@ KBUILD_CFLAGS += -O2
+ else ifdef CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE_O3
+ KBUILD_CFLAGS += -O3
+ else ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
+ KBUILD_CFLAGS += -Os
++else ifdef CONFIG_CC_OPTIMIZE_BASIC
++KBUILD_CFLAGS += -O1
+ endif
+ 
+ # Tell gcc to never replace conditional load with a non-conditional one
+ KBUILD_CFLAGS	+= $(call cc-option,--param=allow-store-data-races=0)
+diff --git a/init/Kconfig b/init/Kconfig
+index c9446911c..c7b092a2a 100644
+--- a/init/Kconfig
++++ b/init/Kconfig
+@@ -1297,8 +1297,14 @@ config BOOT_CONFIG
+ choice
+ 	prompt "Compiler optimization level"
+ 	default CC_OPTIMIZE_FOR_PERFORMANCE
+ 
++config CC_OPTIMIZE_BASIC
++	bool "Optimize for performance (-O1)"
++	help
++	  Choosing this option will pass "-O1" to your compiler resulting
++	  in basic optimization, possibly speeding up compilation.
++
+ config CC_OPTIMIZE_FOR_PERFORMANCE
+ 	bool "Optimize for performance (-O2)"
+ 	help
+ 	  This is the default optimization level for the kernel, building
+@@ -1306,9 +1312,8 @@ config CC_OPTIMIZE_FOR_PERFORMANCE
+ 	  helpful compile-time warnings.
+ 
+ config CC_OPTIMIZE_FOR_PERFORMANCE_O3
+ 	bool "Optimize more for performance (-O3)"
+-	depends on ARC
+ 	help
+ 	  Choosing this option will pass "-O3" to your compiler to optimize
+ 	  the kernel yet more for performance.
+ 
+-- 
+2.29.2
+
