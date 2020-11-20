@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=0
 _rc=rc4
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=3
+pkgrel=4
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -30,7 +30,7 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     #"prepatch-${_basekernel/./}-g${_stablequeue}.patch"
     #
     # sched/core patches
-    0001-sched-tip-picks-20201117.patch
+    0001-sched-tip-picks-20201119.patch
     0002-sched-core-add-missing-completion-for-affine_move_task-waiters.patch
     #SPLAT-sched-delayed-thread-migration.patch -- disabled because of core dumps
     # vfs patch from hho
@@ -100,7 +100,7 @@ sha256sums=('8b5e6fdbb6654b90f36c93dc1b4adafce30e37612424eb9f6fc19aa3264586b9'
             '368dd0d16b05f2e91a64a80f507692a751f4308079cdd8aef3f2e3166be56457'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
-            '75334d305c0d1ee4f62e2d7e0d2e58bec149a44e7950f5663a3ca3be56a21fee'
+            '9d75b3c5cf616a8928366014eb3c5ceea7dda83a1f6d0c3cbcc4ea1238dc5401'
             '9a523d1e3b2a89fa6c92bf87e5121d26da539d3b5d4e8f0e3174aa5050f89401'
             '5fefb657188604fc438ab2c1d3857e564eff4900388aeaacdf8789193984aab2'
             '4976b4de940b27a31fd9b4655abbdc5b61120135b63a822d925ff16e097747bf'
