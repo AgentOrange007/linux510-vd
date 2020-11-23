@@ -9,9 +9,9 @@ pkgname=('linux510-vd' 'linux510-vd-headers')
 _basekernel=5.10
 _kernelname=-vd
 _sub=0
-_rc=rc4
+_rc=rc5
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=4
+pkgrel=1
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -30,11 +30,12 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     #"prepatch-${_basekernel/./}-g${_stablequeue}.patch"
     #
     # sched/core patches
-    0001-sched-tip-picks-20201119.patch
-    0002-sched-core-add-missing-completion-for-affine_move_task-waiters.patch
+    0001-sched-tip-picks-20201123.patch
     #SPLAT-sched-delayed-thread-migration.patch -- disabled because of core dumps
-    # vfs patch from hho
-    0003-vfs-hho-patches.patch
+    # RAPL for AMD 17h+19h
+    0002-powercap-enable-rapl-for-fam17h-and-fam19h.patch
+    # little inlining fix for gcc/asm
+    0003-asm-force-inlining-of-get_order.patch
     # zstd 1.4.6 from terrelln
     0004-update-to-zstd-146.patch
     # futex_wait_multiple
@@ -50,17 +51,13 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     0010-clearlinux-add-config-opt-for-raid6-bench.patch
     # page_poison fixes
     0011-mm-page_poison-fixes-next.patch
-    # RAPL for AMD 17h+19h
-    0012-powercap-enable-rapl-for-fam17h-and-fam19h.patch
+    # vt fixes
+    0012-vt-keyboard-fixes.patch
     # Nuvoton nc677x driver
     0013-i2c-nuvoton-nc677x-hwmon-driver-git.patch::https://gitlab.com/CalcProgrammer1/OpenRGB/-/raw/master/OpenRGB.patch
-    # vt fixes
-    0014-vt-keyboard-fixes.patch
     # AMD enhancements
-    0015-dma-add-support-for-amd-ptdma-controller-driver.patch
-    0016-x86-set-and-use-cpu_die_id-on-amd-based-systems.patch
-    # little inlining fix for gcc/asm
-    0017-asm-force-inlining-of-get_order.patch
+    0014-dma-add-support-for-amd-ptdma-controller-driver.patch
+    0015-x86-set-and-use-cpu_die_id-on-amd-based-systems.patch
     #
     # syscall_work and syscall user dispatcher with necessary patches from tip.git
     1001-x86-entry-20201029.patch
@@ -94,15 +91,15 @@ validpgpkeys=(
   '647F28654894E3BD457199BE38DBBDC86092693E'  # Greg Kroah-Hartman
 )
 
-sha256sums=('8b5e6fdbb6654b90f36c93dc1b4adafce30e37612424eb9f6fc19aa3264586b9'
+sha256sums=('8fb8b10f24fb51a37e35136b916147b2d187cbb9ed13447a560fb9d5fedefe84'
             '74abf77267b50696a08207898a57e1258e8a83c08e7f069eeb06d727d07ac1e9'
             '06a594ea57746b343614c9fe01b74991d89cd56320362b603734c4af73ff34ce'
             '368dd0d16b05f2e91a64a80f507692a751f4308079cdd8aef3f2e3166be56457'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
-            '9d75b3c5cf616a8928366014eb3c5ceea7dda83a1f6d0c3cbcc4ea1238dc5401'
-            '9a523d1e3b2a89fa6c92bf87e5121d26da539d3b5d4e8f0e3174aa5050f89401'
-            '5fefb657188604fc438ab2c1d3857e564eff4900388aeaacdf8789193984aab2'
+            'dd77647f58552a8a4ee79b809884d4bece3ab30f2e0a2ce771efef361843c9a8'
+            'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
+            'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
             '4976b4de940b27a31fd9b4655abbdc5b61120135b63a822d925ff16e097747bf'
             'b86758554105a11900e60b1f83bd272aee8ce3af5c62a382160637844ee4f2a5'
             'b8e9973780dd75f630733a6e323897486d4d9f27d63ebefac48190e247767072'
@@ -111,12 +108,10 @@ sha256sums=('8b5e6fdbb6654b90f36c93dc1b4adafce30e37612424eb9f6fc19aa3264586b9'
             'b78ab97a629579ebc27ff175eacc9162a07c9b925cebd91099c97ef509bd117d'
             'b817e7da8f4901cf2dda0f2fe7b9d8243f32a42d5729e953521ef18eec7a8eb9'
             'a63e51c72ce769b6abdf71408a8556f7fc8eb96078e3173f0d07f4c45929d602'
-            'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
-            'e7d724ac15daf428aa1e6a03737e5c1d040892d55fda8a66897fcac9323f285c'
             '4eaf4b72718637dbd6acd7c88215bf4ac7de1f6a7fc2b484ed7b565bfb8651b1'
+            'e7d724ac15daf428aa1e6a03737e5c1d040892d55fda8a66897fcac9323f285c'
             '1f47d3e3956c41b47656f675a90fad9e318c7133ffe663dc0fd2c9aa0fbfeb3e'
             '162049ed45fbd4e0e2e8bc566978df0b39baece6f32b162c24fe742ecb441589'
-            'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
             '95bcb856f9b8b787703ea39b484661ef31341f0e218d863f8450975c29796516'
             '0a685c6e24c900a8d77c7889f07a451ed28264665082929c61713fceba2ccddf'
             '95cafe60c42f94d0f73207c7c5a97f8da9078482a8ac26f063e628697e28b49e'
@@ -138,15 +133,15 @@ _key="$HOME/build/keys/vd510-kernel-key.pem"
 _pubkey="$HOME/build/keys/vd510-kernel-pubkey.pem"
 
 # custom clang path
-# export PATH=/opt/clang11/bin:$PATH
+export PATH=/opt/clang11/bin:$PATH
 _clang=0
 
 if [[ ${_clang} -eq 1 ]]; then
 	LLVMOPTS="LLVM=1 LLVM_IAS=0"
 	CLANGOPTS="CC=clang LD=ld.lld"
-	source+=('clang-ias-dwarf-fixes.patch' 'clang-lto-20201117.patch')
+	source+=('clang-ias-dwarf-fixes.patch' 'clang-lto-20201121.patch')
 	sha256sums+=('254401bc81c5c865f71c8195fb47f7db1b44227a2597f30ec3e83dd006f402fc'
-		'0a30c2f0428d3dbf71e7f53b9bb832a2dd0ac3ce1c7d38569a12bb60f4c752eb')
+		'6b584849e07c2c0c68911c7c2ba1f4195dfcaec7bdb96125f55f853e5e2c30b3')
 else
 	LLVMOPTS=""
 	CLANGOPTS=""

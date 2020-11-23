@@ -5198,636 +5198,1007 @@ index b1596fa21..6691e28fa 100644
  		if (want_affine)
 -- 
 2.29.2
+From d707faa64d03d26b529cc4aea59dab1b016d4d33 Mon Sep 17 00:00:00 2001
+From: Valentin Schneider <valentin.schneider@arm.com>
+Date: Fri, 13 Nov 2020 11:24:14 +0000
+Subject: [PATCH] sched/core: Add missing completion for affine_move_task()
+ waiters
 
-From 8e1ac4299a6e8726de42310d9c1379f188140c71 Mon Sep 17 00:00:00 2001
-From: Quentin Perret <qperret@google.com>
-Date: Thu, 12 Nov 2020 11:12:01 +0000
-Subject: [PATCH] sched/fair: Fix overutilized update in enqueue_task_fair()
+Qian reported that some fuzzer issuing sched_setaffinity() ends up stuck on
+a wait_for_completion(). The problematic pattern seems to be:
 
-enqueue_task_fair() attempts to skip the overutilized update for new
-tasks as their util_avg is not accurate yet. However, the flag we check
-to do so is overwritten earlier on in the function, which makes the
-condition pretty much a nop.
+  affine_move_task()
+      // task_running() case
+      stop_one_cpu();
+      wait_for_completion(&pending->done);
 
-Fix this by saving the flag early on.
+Combined with, on the stopper side:
 
-Fixes: 2802bf3cd936 ("sched/fair: Add over-utilization/tipping point indicator")
-Reported-by: Rick Yiu <rickyiu@google.com>
-Signed-off-by: Quentin Perret <qperret@google.com>
+  migration_cpu_stop()
+    // Task moved between unlocks and scheduling the stopper
+    task_rq(p) != rq &&
+    // task_running() case
+    dest_cpu >= 0
+
+    => no complete_all()
+
+This can happen with both PREEMPT and !PREEMPT, although !PREEMPT should
+be more likely to see this given the targeted task has a much bigger window
+to block and be woken up elsewhere before the stopper runs.
+
+Make migration_cpu_stop() always look at pending affinity requests; signal
+their completion if the stopper hits a rq mismatch but the task is
+still within its allowed mask. When Migrate-Disable isn't involved, this
+matches the previous set_cpus_allowed_ptr() vs migration_cpu_stop()
+behaviour.
+
+Fixes: 6d337eab041d ("sched: Fix migrate_disable() vs set_cpus_allowed_ptr()")
+Reported-by: Qian Cai <cai@redhat.com>
+Signed-off-by: Valentin Schneider <valentin.schneider@arm.com>
 Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
-Reviewed-by: Vincent Guittot <vincent.guittot@linaro.org>
-Reviewed-by: Valentin Schneider <valentin.schneider@arm.com>
-Link: https://lkml.kernel.org/r/20201112111201.2081902-1-qperret@google.com
+Link: https://lore.kernel.org/lkml/8b62fd1ad1b18def27f18e2ee2df3ff5b36d0762.camel@redhat.com
 Signed-off-by: torvic9 <torvic9@mailbox.org>
 ---
- kernel/sched/fair.c | 3 ++-
- 1 file changed, 2 insertions(+), 1 deletion(-)
-
-diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 8e563cf2b..56a8ca93a 100644
---- a/kernel/sched/fair.c
-+++ b/kernel/sched/fair.c
-@@ -5477,6 +5477,7 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
- 	struct cfs_rq *cfs_rq;
- 	struct sched_entity *se = &p->se;
- 	int idle_h_nr_running = task_has_idle_policy(p);
-+	int task_new = !(flags & ENQUEUE_WAKEUP);
- 
- 	/*
- 	 * The code below (indirectly) updates schedutil which looks at
-@@ -5549,7 +5550,7 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
- 	 * into account, but that is not straightforward to implement,
- 	 * and the following generally works well enough in practice.
- 	 */
--	if (flags & ENQUEUE_WAKEUP)
-+	if (!task_new)
- 		update_overutilized_status(rq);
- 
- enqueue_throttle:
--- 
-2.29.2
-
-From f97bb5272d9e95d400d6c8643ebb146b3e3e7842 Mon Sep 17 00:00:00 2001
-From: Peter Zijlstra <peterz@infradead.org>
-Date: Tue, 17 Nov 2020 09:08:41 +0100
-Subject: [PATCH] sched: Fix data-race in wakeup
-
-Mel reported that on some ARM64 platforms loadavg goes bananas and
-Will tracked it down to the following race:
-
-  CPU0					CPU1
-
-  schedule()
-    prev->sched_contributes_to_load = X;
-    deactivate_task(prev);
-
-					try_to_wake_up()
-					  if (p->on_rq &&) // false
-					  if (smp_load_acquire(&p->on_cpu) && // true
-					      ttwu_queue_wakelist())
-					        p->sched_remote_wakeup = Y;
-
-    smp_store_release(prev->on_cpu, 0);
-
-where both p->sched_contributes_to_load and p->sched_remote_wakeup are
-in the same word, and thus the stores X and Y race (and can clobber
-one another's data).
-
-Whereas prior to commit c6e7bd7afaeb ("sched/core: Optimize ttwu()
-spinning on p->on_cpu") the p->on_cpu handoff serialized access to
-p->sched_remote_wakeup (just as it still does with
-p->sched_contributes_to_load) that commit broke that by calling
-ttwu_queue_wakelist() with p->on_cpu != 0.
-
-However, due to
-
-  p->XXX = X			ttwu()
-  schedule()			  if (p->on_rq && ...) // false
-    smp_mb__after_spinlock()	  if (smp_load_acquire(&p->on_cpu) &&
-    deactivate_task()		      ttwu_queue_wakelist())
-      p->on_rq = 0;		        p->sched_remote_wakeup = Y;
-
-We can be sure any 'current' store is complete and 'current' is
-guaranteed asleep. Therefore we can move p->sched_remote_wakeup into
-the current flags word.
-
-Note: while the observed failure was loadavg accounting gone wrong due
-to ttwu() cobbering p->sched_contributes_to_load, the reverse problem
-is also possible where schedule() clobbers p->sched_remote_wakeup,
-this could result in enqueue_entity() wrecking ->vruntime and causing
-scheduling artifacts.
-
-Fixes: c6e7bd7afaeb ("sched/core: Optimize ttwu() spinning on p->on_cpu")
-Reported-by: Mel Gorman <mgorman@techsingularity.net>
-Debugged-by: Will Deacon <will@kernel.org>
-Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
-Link: https://lkml.kernel.org/r/20201117083016.GK3121392@hirez.programming.kicks-ass.net
-Signed-off-by: torvic9 <torvic9@mailbox.org>
----
- include/linux/sched.h | 16 +++++++++++++++-
- 1 file changed, 15 insertions(+), 1 deletion(-)
-
-diff --git a/include/linux/sched.h b/include/linux/sched.h
-index d383cf09e..0e91b451d 100644
---- a/include/linux/sched.h
-+++ b/include/linux/sched.h
-@@ -769,7 +769,6 @@ struct task_struct {
- 	unsigned			sched_reset_on_fork:1;
- 	unsigned			sched_contributes_to_load:1;
- 	unsigned			sched_migrated:1;
--	unsigned			sched_remote_wakeup:1;
- #ifdef CONFIG_PSI
- 	unsigned			sched_psi_wake_requeue:1;
- #endif
-@@ -779,6 +778,21 @@ struct task_struct {
- 
- 	/* Unserialized, strictly 'current' */
- 
-+	/*
-+	 * This field must not be in the scheduler word above due to wakelist
-+	 * queueing no longer being serialized by p->on_cpu. However:
-+	 *
-+	 * p->XXX = X;			ttwu()
-+	 * schedule()			  if (p->on_rq && ..) // false
-+	 *   smp_mb__after_spinlock();	  if (smp_load_acquire(&p->on_cpu) && //true
-+	 *   deactivate_task()		      ttwu_queue_wakelist())
-+	 *     p->on_rq = 0;			p->sched_remote_wakeup = Y;
-+	 *
-+	 * guarantees all stores of 'current' are visible before
-+	 * ->sched_remote_wakeup gets used, so it can be in this word.
-+	 */
-+	unsigned			sched_remote_wakeup:1;
-+
- 	/* Bit to tell LSMs we're in execve(): */
- 	unsigned			in_execve:1;
- 	unsigned			in_iowait:1;
--- 
-2.29.2
-
-From ec618b84f6e15281cc3660664d34cd0dd2f2579e Mon Sep 17 00:00:00 2001
-From: Peter Zijlstra <peterz@infradead.org>
-Date: Thu, 24 Sep 2020 13:50:42 +0200
-Subject: [PATCH] sched: Fix rq->nr_iowait ordering
-
-  schedule()				ttwu()
-    deactivate_task();			  if (p->on_rq && ...) // false
-					    atomic_dec(&task_rq(p)->nr_iowait);
-    if (prev->in_iowait)
-      atomic_inc(&rq->nr_iowait);
-
-Allows nr_iowait to be decremented before it gets incremented,
-resulting in more dodgy IO-wait numbers than usual.
-
-Note that because we can now do ttwu_queue_wakelist() before
-p->on_cpu==0, we lose the natural ordering and have to further delay
-the decrement.
-
-Fixes: c6e7bd7afaeb ("sched/core: Optimize ttwu() spinning on p->on_cpu")
-Reported-by: Tejun Heo <tj@kernel.org>
-Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
-Acked-by: Mel Gorman <mgorman@techsingularity.net>
-Link: https://lkml.kernel.org/r/20201117093829.GD3121429@hirez.programming.kicks-ass.net
-Signed-off-by: torvic9 <torvic9@mailbox.org>
----
- kernel/sched/core.c | 15 ++++++++++-----
- 1 file changed, 10 insertions(+), 5 deletions(-)
+ kernel/sched/core.c | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
 
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index d2003a7d5..9f0ebfb0d 100644
+index a6aaf9fb3..4d1fd4b78 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
-@@ -2501,7 +2501,12 @@ ttwu_do_activate(struct rq *rq, struct task_struct *p, int wake_flags,
- #ifdef CONFIG_SMP
- 	if (wake_flags & WF_MIGRATED)
- 		en_flags |= ENQUEUE_MIGRATED;
-+	else
- #endif
-+	if (p->in_iowait) {
-+		delayacct_blkio_end(p);
-+		atomic_dec(&task_rq(p)->nr_iowait);
-+	}
+@@ -1923,7 +1923,7 @@ static int migration_cpu_stop(void *data)
+ 		else
+ 			p->wake_cpu = dest_cpu;
  
- 	activate_task(rq, p, en_flags);
- 	ttwu_do_wakeup(rq, p, wake_flags, rf);
-@@ -2888,11 +2893,6 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
- 	if (READ_ONCE(p->on_rq) && ttwu_runnable(p, wake_flags))
- 		goto unlock;
+-	} else if (dest_cpu < 0) {
++	} else if (dest_cpu < 0 || pending) {
+ 		/*
+ 		 * This happens when we get migrated between migrate_enable()'s
+ 		 * preempt_enable() and scheduling the stopper task. At that
+@@ -1933,6 +1933,17 @@ static int migration_cpu_stop(void *data)
+ 		 * more likely.
+ 		 */
  
--	if (p->in_iowait) {
--		delayacct_blkio_end(p);
--		atomic_dec(&task_rq(p)->nr_iowait);
--	}
--
- #ifdef CONFIG_SMP
- 	/*
- 	 * Ensure we load p->on_cpu _after_ p->on_rq, otherwise it would be
-@@ -2963,6 +2963,11 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
- 
- 	cpu = select_task_rq(p, p->wake_cpu, SD_BALANCE_WAKE, wake_flags);
- 	if (task_cpu(p) != cpu) {
-+		if (p->in_iowait) {
-+			delayacct_blkio_end(p);
-+			atomic_dec(&task_rq(p)->nr_iowait);
++		/*
++		 * The task moved before the stopper got to run. We're holding
++		 * ->pi_lock, so the allowed mask is stable - if it got
++		 * somewhere allowed, we're done.
++		 */
++		if (pending && cpumask_test_cpu(task_cpu(p), p->cpus_ptr)) {
++			p->migration_pending = NULL;
++			complete = true;
++			goto out;
 +		}
 +
- 		wake_flags |= WF_MIGRATED;
- 		psi_ttwu_dequeue(p);
- 		set_task_cpu(p, cpu);
+ 		/*
+ 		 * When this was migrate_enable() but we no longer have an
+ 		 * @pending, a concurrent SCA 'fixed' things and we should be
 -- 
 2.29.2
 
-From 2279f540ea7d05f22d2f0c4224319330228586bc Mon Sep 17 00:00:00 2001
-From: Juri Lelli <juri.lelli@redhat.com>
-Date: Tue, 17 Nov 2020 07:14:32 +0100
-Subject: [PATCH] sched/deadline: Fix priority inheritance with multiple
- scheduling classes
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
+From 1293771e4353c148d5f6908fb32d1c1cfd653e47 Mon Sep 17 00:00:00 2001
+From: Peter Zijlstra <peterz@infradead.org>
+Date: Tue, 17 Nov 2020 12:14:51 +0100
+Subject: [PATCH] sched: Fix migration_cpu_stop() WARN
 
-Glenn reported that "an application [he developed produces] a BUG in
-deadline.c when a SCHED_DEADLINE task contends with CFS tasks on nested
-PTHREAD_PRIO_INHERIT mutexes.  I believe the bug is triggered when a CFS
-task that was boosted by a SCHED_DEADLINE task boosts another CFS task
-(nested priority inheritance).
+Oleksandr reported hitting the WARN in the 'task_rq(p) != rq' branch
+of migration_cpu_stop(). Valentin noted that using cpu_of(rq) in that
+case is just plain wrong to begin with, since per the earlier branch
+that isn't the actual CPU of the task.
 
- ------------[ cut here ]------------
- kernel BUG at kernel/sched/deadline.c:1462!
- invalid opcode: 0000 [#1] PREEMPT SMP
- CPU: 12 PID: 19171 Comm: dl_boost_bug Tainted: ...
- Hardware name: ...
- RIP: 0010:enqueue_task_dl+0x335/0x910
- Code: ...
- RSP: 0018:ffffc9000c2bbc68 EFLAGS: 00010002
- RAX: 0000000000000009 RBX: ffff888c0af94c00 RCX: ffffffff81e12500
- RDX: 000000000000002e RSI: ffff888c0af94c00 RDI: ffff888c10b22600
- RBP: ffffc9000c2bbd08 R08: 0000000000000009 R09: 0000000000000078
- R10: ffffffff81e12440 R11: ffffffff81e1236c R12: ffff888bc8932600
- R13: ffff888c0af94eb8 R14: ffff888c10b22600 R15: ffff888bc8932600
- FS:  00007fa58ac55700(0000) GS:ffff888c10b00000(0000) knlGS:0000000000000000
- CS:  0010 DS: 0000 ES: 0000 CR0: 0000000080050033
- CR2: 00007fa58b523230 CR3: 0000000bf44ab003 CR4: 00000000007606e0
- DR0: 0000000000000000 DR1: 0000000000000000 DR2: 0000000000000000
- DR3: 0000000000000000 DR6: 00000000fffe0ff0 DR7: 0000000000000400
- PKRU: 55555554
- Call Trace:
-  ? intel_pstate_update_util_hwp+0x13/0x170
-  rt_mutex_setprio+0x1cc/0x4b0
-  task_blocks_on_rt_mutex+0x225/0x260
-  rt_spin_lock_slowlock_locked+0xab/0x2d0
-  rt_spin_lock_slowlock+0x50/0x80
-  hrtimer_grab_expiry_lock+0x20/0x30
-  hrtimer_cancel+0x13/0x30
-  do_nanosleep+0xa0/0x150
-  hrtimer_nanosleep+0xe1/0x230
-  ? __hrtimer_init_sleeper+0x60/0x60
-  __x64_sys_nanosleep+0x8d/0xa0
-  do_syscall_64+0x4a/0x100
-  entry_SYSCALL_64_after_hwframe+0x49/0xbe
- RIP: 0033:0x7fa58b52330d
- ...
- ---[ end trace 0000000000000002 ]—
+Replace both instances of is_cpu_allowed() by a direct p->cpus_mask
+test using task_cpu().
 
-He also provided a simple reproducer creating the situation below:
-
- So the execution order of locking steps are the following
- (N1 and N2 are non-deadline tasks. D1 is a deadline task. M1 and M2
- are mutexes that are enabled * with priority inheritance.)
-
- Time moves forward as this timeline goes down:
-
- N1              N2               D1
- |               |                |
- |               |                |
- Lock(M1)        |                |
- |               |                |
- |             Lock(M2)           |
- |               |                |
- |               |              Lock(M2)
- |               |                |
- |             Lock(M1)           |
- |             (!!bug triggered!) |
-
-Daniel reported a similar situation as well, by just letting ksoftirqd
-run with DEADLINE (and eventually block on a mutex).
-
-Problem is that boosted entities (Priority Inheritance) use static
-DEADLINE parameters of the top priority waiter. However, there might be
-cases where top waiter could be a non-DEADLINE entity that is currently
-boosted by a DEADLINE entity from a different lock chain (i.e., nested
-priority chains involving entities of non-DEADLINE classes). In this
-case, top waiter static DEADLINE parameters could be null (initialized
-to 0 at fork()) and replenish_dl_entity() would hit a BUG().
-
-Fix this by keeping track of the original donor and using its parameters
-when a task is boosted.
-
-Reported-by: Glenn Elliott <glenn@aurora.tech>
-Reported-by: Daniel Bristot de Oliveira <bristot@redhat.com>
-Signed-off-by: Juri Lelli <juri.lelli@redhat.com>
+Reported-by: Oleksandr Natalenko <oleksandr@natalenko.name>
+Debugged-by: Valentin Schneider <valentin.schneider@arm.com>
 Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
-Tested-by: Daniel Bristot de Oliveira <bristot@redhat.com>
-Link: https://lkml.kernel.org/r/20201117061432.517340-1-juri.lelli@redhat.com
 Signed-off-by: torvic9 <torvic9@mailbox.org>
 ---
- include/linux/sched.h   | 10 ++++-
- kernel/sched/core.c     | 11 ++---
- kernel/sched/deadline.c | 97 ++++++++++++++++++++++-------------------
- 3 files changed, 68 insertions(+), 50 deletions(-)
+ kernel/sched/core.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
 
-diff --git a/include/linux/sched.h b/include/linux/sched.h
-index 0e91b451d..095fdec07 100644
---- a/include/linux/sched.h
-+++ b/include/linux/sched.h
-@@ -551,7 +551,6 @@ struct sched_dl_entity {
- 	 * overruns.
- 	 */
- 	unsigned int			dl_throttled      : 1;
--	unsigned int			dl_boosted        : 1;
- 	unsigned int			dl_yielded        : 1;
- 	unsigned int			dl_non_contending : 1;
- 	unsigned int			dl_overrun	  : 1;
-@@ -570,6 +569,15 @@ struct sched_dl_entity {
- 	 * time.
- 	 */
- 	struct hrtimer inactive_timer;
-+
-+#ifdef CONFIG_RT_MUTEXES
-+	/*
-+	 * Priority Inheritance. When a DEADLINE scheduling entity is boosted
-+	 * pi_se points to the donor, otherwise points to the dl_se it belongs
-+	 * to (the original one/itself).
-+	 */
-+	struct sched_dl_entity *pi_se;
-+#endif
- };
- 
- #ifdef CONFIG_UCLAMP_TASK
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 9f0ebfb0d..e7e453492 100644
+index 4d1fd4b78..28d541a3c 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
-@@ -4912,20 +4912,21 @@ void rt_mutex_setprio(struct task_struct *p, struct task_struct *pi_task)
- 		if (!dl_prio(p->normal_prio) ||
- 		    (pi_task && dl_prio(pi_task->prio) &&
- 		     dl_entity_preempt(&pi_task->dl, &p->dl))) {
--			p->dl.dl_boosted = 1;
-+			p->dl.pi_se = pi_task->dl.pi_se;
- 			queue_flag |= ENQUEUE_REPLENISH;
--		} else
--			p->dl.dl_boosted = 0;
-+		} else {
-+			p->dl.pi_se = &p->dl;
-+		}
- 		p->sched_class = &dl_sched_class;
- 	} else if (rt_prio(prio)) {
- 		if (dl_prio(oldprio))
--			p->dl.dl_boosted = 0;
-+			p->dl.pi_se = &p->dl;
- 		if (oldprio < prio)
- 			queue_flag |= ENQUEUE_HEAD;
- 		p->sched_class = &rt_sched_class;
- 	} else {
- 		if (dl_prio(oldprio))
--			p->dl.dl_boosted = 0;
-+			p->dl.pi_se = &p->dl;
- 		if (rt_prio(oldprio))
- 			p->rt.timeout = 0;
- 		p->sched_class = &fair_sched_class;
-diff --git a/kernel/sched/deadline.c b/kernel/sched/deadline.c
-index 6d93f4518..949bc5c08 100644
---- a/kernel/sched/deadline.c
-+++ b/kernel/sched/deadline.c
-@@ -43,6 +43,28 @@ static inline int on_dl_rq(struct sched_dl_entity *dl_se)
- 	return !RB_EMPTY_NODE(&dl_se->rb_node);
- }
+@@ -1911,7 +1911,7 @@ static int migration_cpu_stop(void *data)
+ 			 * and we should be valid again. Nothing to do.
+ 			 */
+ 			if (!pending) {
+-				WARN_ON_ONCE(!is_cpu_allowed(p, cpu_of(rq)));
++				WARN_ON_ONCE(!cpumask_test_cpu(task_cpu(p), &p->cpus_mask));
+ 				goto out;
+ 			}
  
-+#ifdef CONFIG_RT_MUTEXES
-+static inline struct sched_dl_entity *pi_of(struct sched_dl_entity *dl_se)
-+{
-+	return dl_se->pi_se;
-+}
-+
-+static inline bool is_dl_boosted(struct sched_dl_entity *dl_se)
-+{
-+	return pi_of(dl_se) != dl_se;
-+}
-+#else
-+static inline struct sched_dl_entity *pi_of(struct sched_dl_entity *dl_se)
-+{
-+	return dl_se;
-+}
-+
-+static inline bool is_dl_boosted(struct sched_dl_entity *dl_se)
-+{
-+	return false;
-+}
-+#endif
-+
- #ifdef CONFIG_SMP
- static inline struct dl_bw *dl_bw_of(int i)
- {
-@@ -698,7 +720,7 @@ static inline void setup_new_dl_entity(struct sched_dl_entity *dl_se)
- 	struct dl_rq *dl_rq = dl_rq_of_se(dl_se);
- 	struct rq *rq = rq_of_dl_rq(dl_rq);
- 
--	WARN_ON(dl_se->dl_boosted);
-+	WARN_ON(is_dl_boosted(dl_se));
- 	WARN_ON(dl_time_before(rq_clock(rq), dl_se->deadline));
- 
- 	/*
-@@ -736,21 +758,20 @@ static inline void setup_new_dl_entity(struct sched_dl_entity *dl_se)
-  * could happen are, typically, a entity voluntarily trying to overcome its
-  * runtime, or it just underestimated it during sched_setattr().
-  */
--static void replenish_dl_entity(struct sched_dl_entity *dl_se,
--				struct sched_dl_entity *pi_se)
-+static void replenish_dl_entity(struct sched_dl_entity *dl_se)
- {
- 	struct dl_rq *dl_rq = dl_rq_of_se(dl_se);
- 	struct rq *rq = rq_of_dl_rq(dl_rq);
- 
--	BUG_ON(pi_se->dl_runtime <= 0);
-+	BUG_ON(pi_of(dl_se)->dl_runtime <= 0);
- 
- 	/*
- 	 * This could be the case for a !-dl task that is boosted.
- 	 * Just go with full inherited parameters.
- 	 */
- 	if (dl_se->dl_deadline == 0) {
--		dl_se->deadline = rq_clock(rq) + pi_se->dl_deadline;
--		dl_se->runtime = pi_se->dl_runtime;
-+		dl_se->deadline = rq_clock(rq) + pi_of(dl_se)->dl_deadline;
-+		dl_se->runtime = pi_of(dl_se)->dl_runtime;
- 	}
- 
- 	if (dl_se->dl_yielded && dl_se->runtime > 0)
-@@ -763,8 +784,8 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se,
- 	 * arbitrary large.
- 	 */
- 	while (dl_se->runtime <= 0) {
--		dl_se->deadline += pi_se->dl_period;
--		dl_se->runtime += pi_se->dl_runtime;
-+		dl_se->deadline += pi_of(dl_se)->dl_period;
-+		dl_se->runtime += pi_of(dl_se)->dl_runtime;
- 	}
- 
- 	/*
-@@ -778,8 +799,8 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se,
- 	 */
- 	if (dl_time_before(dl_se->deadline, rq_clock(rq))) {
- 		printk_deferred_once("sched: DL replenish lagged too much\n");
--		dl_se->deadline = rq_clock(rq) + pi_se->dl_deadline;
--		dl_se->runtime = pi_se->dl_runtime;
-+		dl_se->deadline = rq_clock(rq) + pi_of(dl_se)->dl_deadline;
-+		dl_se->runtime = pi_of(dl_se)->dl_runtime;
- 	}
- 
- 	if (dl_se->dl_yielded)
-@@ -812,8 +833,7 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se,
-  * task with deadline equal to period this is the same of using
-  * dl_period instead of dl_deadline in the equation above.
-  */
--static bool dl_entity_overflow(struct sched_dl_entity *dl_se,
--			       struct sched_dl_entity *pi_se, u64 t)
-+static bool dl_entity_overflow(struct sched_dl_entity *dl_se, u64 t)
- {
- 	u64 left, right;
- 
-@@ -835,9 +855,9 @@ static bool dl_entity_overflow(struct sched_dl_entity *dl_se,
- 	 * of anything below microseconds resolution is actually fiction
- 	 * (but still we want to give the user that illusion >;).
- 	 */
--	left = (pi_se->dl_deadline >> DL_SCALE) * (dl_se->runtime >> DL_SCALE);
-+	left = (pi_of(dl_se)->dl_deadline >> DL_SCALE) * (dl_se->runtime >> DL_SCALE);
- 	right = ((dl_se->deadline - t) >> DL_SCALE) *
--		(pi_se->dl_runtime >> DL_SCALE);
-+		(pi_of(dl_se)->dl_runtime >> DL_SCALE);
- 
- 	return dl_time_before(right, left);
- }
-@@ -922,24 +942,23 @@ static inline bool dl_is_implicit(struct sched_dl_entity *dl_se)
-  * Please refer to the comments update_dl_revised_wakeup() function to find
-  * more about the Revised CBS rule.
-  */
--static void update_dl_entity(struct sched_dl_entity *dl_se,
--			     struct sched_dl_entity *pi_se)
-+static void update_dl_entity(struct sched_dl_entity *dl_se)
- {
- 	struct dl_rq *dl_rq = dl_rq_of_se(dl_se);
- 	struct rq *rq = rq_of_dl_rq(dl_rq);
- 
- 	if (dl_time_before(dl_se->deadline, rq_clock(rq)) ||
--	    dl_entity_overflow(dl_se, pi_se, rq_clock(rq))) {
-+	    dl_entity_overflow(dl_se, rq_clock(rq))) {
- 
- 		if (unlikely(!dl_is_implicit(dl_se) &&
- 			     !dl_time_before(dl_se->deadline, rq_clock(rq)) &&
--			     !dl_se->dl_boosted)){
-+			     !is_dl_boosted(dl_se))) {
- 			update_dl_revised_wakeup(dl_se, rq);
- 			return;
+@@ -1950,7 +1950,7 @@ static int migration_cpu_stop(void *data)
+ 		 * valid again. Nothing to do.
+ 		 */
+ 		if (!pending) {
+-			WARN_ON_ONCE(!is_cpu_allowed(p, cpu_of(rq)));
++			WARN_ON_ONCE(!cpumask_test_cpu(task_cpu(p), &p->cpus_mask));
+ 			goto out;
  		}
  
--		dl_se->deadline = rq_clock(rq) + pi_se->dl_deadline;
--		dl_se->runtime = pi_se->dl_runtime;
-+		dl_se->deadline = rq_clock(rq) + pi_of(dl_se)->dl_deadline;
-+		dl_se->runtime = pi_of(dl_se)->dl_runtime;
- 	}
- }
- 
-@@ -1038,7 +1057,7 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
- 	 * The task might have been boosted by someone else and might be in the
- 	 * boosting/deboosting path, its not throttled.
- 	 */
--	if (dl_se->dl_boosted)
-+	if (is_dl_boosted(dl_se))
- 		goto unlock;
- 
- 	/*
-@@ -1066,7 +1085,7 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
- 	 * but do not enqueue -- wait for our wakeup to do that.
- 	 */
- 	if (!task_on_rq_queued(p)) {
--		replenish_dl_entity(dl_se, dl_se);
-+		replenish_dl_entity(dl_se);
- 		goto unlock;
- 	}
- 
-@@ -1156,7 +1175,7 @@ static inline void dl_check_constrained_dl(struct sched_dl_entity *dl_se)
- 
- 	if (dl_time_before(dl_se->deadline, rq_clock(rq)) &&
- 	    dl_time_before(rq_clock(rq), dl_next_period(dl_se))) {
--		if (unlikely(dl_se->dl_boosted || !start_dl_timer(p)))
-+		if (unlikely(is_dl_boosted(dl_se) || !start_dl_timer(p)))
- 			return;
- 		dl_se->dl_throttled = 1;
- 		if (dl_se->runtime > 0)
-@@ -1287,7 +1306,7 @@ static void update_curr_dl(struct rq *rq)
- 			dl_se->dl_overrun = 1;
- 
- 		__dequeue_task_dl(rq, curr, 0);
--		if (unlikely(dl_se->dl_boosted || !start_dl_timer(curr)))
-+		if (unlikely(is_dl_boosted(dl_se) || !start_dl_timer(curr)))
- 			enqueue_task_dl(rq, curr, ENQUEUE_REPLENISH);
- 
- 		if (!is_leftmost(curr, &rq->dl))
-@@ -1481,8 +1500,7 @@ static void __dequeue_dl_entity(struct sched_dl_entity *dl_se)
- }
- 
- static void
--enqueue_dl_entity(struct sched_dl_entity *dl_se,
--		  struct sched_dl_entity *pi_se, int flags)
-+enqueue_dl_entity(struct sched_dl_entity *dl_se, int flags)
- {
- 	BUG_ON(on_dl_rq(dl_se));
- 
-@@ -1493,9 +1511,9 @@ enqueue_dl_entity(struct sched_dl_entity *dl_se,
- 	 */
- 	if (flags & ENQUEUE_WAKEUP) {
- 		task_contending(dl_se, flags);
--		update_dl_entity(dl_se, pi_se);
-+		update_dl_entity(dl_se);
- 	} else if (flags & ENQUEUE_REPLENISH) {
--		replenish_dl_entity(dl_se, pi_se);
-+		replenish_dl_entity(dl_se);
- 	} else if ((flags & ENQUEUE_RESTORE) &&
- 		  dl_time_before(dl_se->deadline,
- 				 rq_clock(rq_of_dl_rq(dl_rq_of_se(dl_se))))) {
-@@ -1512,19 +1530,7 @@ static void dequeue_dl_entity(struct sched_dl_entity *dl_se)
- 
- static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
- {
--	struct task_struct *pi_task = rt_mutex_get_top_task(p);
--	struct sched_dl_entity *pi_se = &p->dl;
--
--	/*
--	 * Use the scheduling parameters of the top pi-waiter task if:
--	 * - we have a top pi-waiter which is a SCHED_DEADLINE task AND
--	 * - our dl_boosted is set (i.e. the pi-waiter's (absolute) deadline is
--	 *   smaller than our deadline OR we are a !SCHED_DEADLINE task getting
--	 *   boosted due to a SCHED_DEADLINE pi-waiter).
--	 * Otherwise we keep our runtime and deadline.
--	 */
--	if (pi_task && dl_prio(pi_task->normal_prio) && p->dl.dl_boosted) {
--		pi_se = &pi_task->dl;
-+	if (is_dl_boosted(&p->dl)) {
- 		/*
- 		 * Because of delays in the detection of the overrun of a
- 		 * thread's runtime, it might be the case that a thread
-@@ -1557,7 +1563,7 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
- 		 * the throttle.
- 		 */
- 		p->dl.dl_throttled = 0;
--		BUG_ON(!p->dl.dl_boosted || flags != ENQUEUE_REPLENISH);
-+		BUG_ON(!is_dl_boosted(&p->dl) || flags != ENQUEUE_REPLENISH);
- 		return;
- 	}
- 
-@@ -1594,7 +1600,7 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
- 		return;
- 	}
- 
--	enqueue_dl_entity(&p->dl, pi_se, flags);
-+	enqueue_dl_entity(&p->dl, flags);
- 
- 	if (!task_current(rq, p) && p->nr_cpus_allowed > 1)
- 		enqueue_pushable_dl_task(rq, p);
-@@ -2787,11 +2793,14 @@ void __dl_clear_params(struct task_struct *p)
- 	dl_se->dl_bw			= 0;
- 	dl_se->dl_density		= 0;
- 
--	dl_se->dl_boosted		= 0;
- 	dl_se->dl_throttled		= 0;
- 	dl_se->dl_yielded		= 0;
- 	dl_se->dl_non_contending	= 0;
- 	dl_se->dl_overrun		= 0;
-+
-+#ifdef CONFIG_RT_MUTEXES
-+	dl_se->pi_se			= dl_se;
-+#endif
- }
- 
- bool dl_param_changed(struct task_struct *p, const struct sched_attr *attr)
 -- 
 2.29.2
+
+From 406100f3da08066c00105165db8520bbc7694a36 Mon Sep 17 00:00:00 2001
+From: Daniel Jordan <daniel.m.jordan@oracle.com>
+Date: Thu, 12 Nov 2020 12:17:11 -0500
+Subject: [PATCH] cpuset: fix race between hotplug work and later CPU offline
+
+One of our machines keeled over trying to rebuild the scheduler domains.
+Mainline produces the same splat:
+
+  BUG: unable to handle page fault for address: 0000607f820054db
+  CPU: 2 PID: 149 Comm: kworker/1:1 Not tainted 5.10.0-rc1-master+ #6
+  Workqueue: events cpuset_hotplug_workfn
+  RIP: build_sched_domains
+  Call Trace:
+   partition_sched_domains_locked
+   rebuild_sched_domains_locked
+   cpuset_hotplug_workfn
+
+It happens with cgroup2 and exclusive cpusets only.  This reproducer
+triggers it on an 8-cpu vm and works most effectively with no
+preexisting child cgroups:
+
+  cd $UNIFIED_ROOT
+  mkdir cg1
+  echo 4-7 > cg1/cpuset.cpus
+  echo root > cg1/cpuset.cpus.partition
+
+  # with smt/control reading 'on',
+  echo off > /sys/devices/system/cpu/smt/control
+
+RIP maps to
+
+  sd->shared = *per_cpu_ptr(sdd->sds, sd_id);
+
+from sd_init().  sd_id is calculated earlier in the same function:
+
+  cpumask_and(sched_domain_span(sd), cpu_map, tl->mask(cpu));
+  sd_id = cpumask_first(sched_domain_span(sd));
+
+tl->mask(cpu), which reads cpu_sibling_map on x86, returns an empty mask
+and so cpumask_first() returns >= nr_cpu_ids, which leads to the bogus
+value from per_cpu_ptr() above.
+
+The problem is a race between cpuset_hotplug_workfn() and a later
+offline of CPU N.  cpuset_hotplug_workfn() updates the effective masks
+when N is still online, the offline clears N from cpu_sibling_map, and
+then the worker uses the stale effective masks that still have N to
+generate the scheduling domains, leading the worker to read
+N's empty cpu_sibling_map in sd_init().
+
+rebuild_sched_domains_locked() prevented the race during the cgroup2
+cpuset series up until the Fixes commit changed its check.  Make the
+check more robust so that it can detect an offline CPU in any exclusive
+cpuset's effective mask, not just the top one.
+
+Fixes: 0ccea8feb980 ("cpuset: Make generate_sched_domains() work with partition")
+Signed-off-by: Daniel Jordan <daniel.m.jordan@oracle.com>
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Acked-by: Tejun Heo <tj@kernel.org>
+Cc: stable@vger.kernel.org
+Link: https://lkml.kernel.org/r/20201112171711.639541-1-daniel.m.jordan@oracle.com
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ kernel/cgroup/cpuset.c | 33 ++++++++++++++++++++++++++++-----
+ 1 file changed, 28 insertions(+), 5 deletions(-)
+
+diff --git a/kernel/cgroup/cpuset.c b/kernel/cgroup/cpuset.c
+index 57b5b5d0a..53c70c470 100644
+--- a/kernel/cgroup/cpuset.c
++++ b/kernel/cgroup/cpuset.c
+@@ -983,25 +983,48 @@ partition_and_rebuild_sched_domains(int ndoms_new, cpumask_var_t doms_new[],
+  */
+ static void rebuild_sched_domains_locked(void)
+ {
++	struct cgroup_subsys_state *pos_css;
+ 	struct sched_domain_attr *attr;
+ 	cpumask_var_t *doms;
++	struct cpuset *cs;
+ 	int ndoms;
+ 
+ 	lockdep_assert_cpus_held();
+ 	percpu_rwsem_assert_held(&cpuset_rwsem);
+ 
+ 	/*
+-	 * We have raced with CPU hotplug. Don't do anything to avoid
++	 * If we have raced with CPU hotplug, return early to avoid
+ 	 * passing doms with offlined cpu to partition_sched_domains().
+-	 * Anyways, hotplug work item will rebuild sched domains.
++	 * Anyways, cpuset_hotplug_workfn() will rebuild sched domains.
++	 *
++	 * With no CPUs in any subpartitions, top_cpuset's effective CPUs
++	 * should be the same as the active CPUs, so checking only top_cpuset
++	 * is enough to detect racing CPU offlines.
+ 	 */
+ 	if (!top_cpuset.nr_subparts_cpus &&
+ 	    !cpumask_equal(top_cpuset.effective_cpus, cpu_active_mask))
+ 		return;
+ 
+-	if (top_cpuset.nr_subparts_cpus &&
+-	   !cpumask_subset(top_cpuset.effective_cpus, cpu_active_mask))
+-		return;
++	/*
++	 * With subpartition CPUs, however, the effective CPUs of a partition
++	 * root should be only a subset of the active CPUs.  Since a CPU in any
++	 * partition root could be offlined, all must be checked.
++	 */
++	if (top_cpuset.nr_subparts_cpus) {
++		rcu_read_lock();
++		cpuset_for_each_descendant_pre(cs, pos_css, &top_cpuset) {
++			if (!is_partition_root(cs)) {
++				pos_css = css_rightmost_descendant(pos_css);
++				continue;
++			}
++			if (!cpumask_subset(cs->effective_cpus,
++					    cpu_active_mask)) {
++				rcu_read_unlock();
++				return;
++			}
++		}
++		rcu_read_unlock();
++	}
+ 
+ 	/* Generate domain masks and attrs */
+ 	ndoms = generate_sched_domains(&doms, &attr);
+-- 
+2.29.2
+
+From b5b217346de85ed1b03fdecd5c5076b34fbb2f0b Mon Sep 17 00:00:00 2001
+From: Valentin Schneider <valentin.schneider@arm.com>
+Date: Tue, 10 Nov 2020 18:43:00 +0000
+Subject: [PATCH] sched/topology: Warn when NUMA diameter > 2
+
+NUMA topologies where the shortest path between some two nodes requires
+three or more hops (i.e. diameter > 2) end up being misrepresented in the
+scheduler topology structures.
+
+This is currently detected when booting a kernel with CONFIG_SCHED_DEBUG=y
++ sched_debug on the cmdline, although this will only yield a warning about
+sched_group spans not matching sched_domain spans:
+
+  ERROR: groups don't span domain->span
+
+Add an explicit warning for that case, triggered regardless of
+CONFIG_SCHED_DEBUG, and decorate it with an appropriate comment.
+
+The topology described in the comment can be booted up on QEMU by appending
+the following to your usual QEMU incantation:
+
+    -smp cores=4 \
+    -numa node,cpus=0,nodeid=0 -numa node,cpus=1,nodeid=1, \
+    -numa node,cpus=2,nodeid=2, -numa node,cpus=3,nodeid=3, \
+    -numa dist,src=0,dst=1,val=20, -numa dist,src=0,dst=2,val=30, \
+    -numa dist,src=0,dst=3,val=40, -numa dist,src=1,dst=2,val=20, \
+    -numa dist,src=1,dst=3,val=30, -numa dist,src=2,dst=3,val=20
+
+A somewhat more realistic topology (6-node mesh) with the same affliction
+can be conjured with:
+
+    -smp cores=6 \
+    -numa node,cpus=0,nodeid=0 -numa node,cpus=1,nodeid=1, \
+    -numa node,cpus=2,nodeid=2, -numa node,cpus=3,nodeid=3, \
+    -numa node,cpus=4,nodeid=4, -numa node,cpus=5,nodeid=5, \
+    -numa dist,src=0,dst=1,val=20, -numa dist,src=0,dst=2,val=30, \
+    -numa dist,src=0,dst=3,val=40, -numa dist,src=0,dst=4,val=30, \
+    -numa dist,src=0,dst=5,val=20, \
+    -numa dist,src=1,dst=2,val=20, -numa dist,src=1,dst=3,val=30, \
+    -numa dist,src=1,dst=4,val=20, -numa dist,src=1,dst=5,val=30, \
+    -numa dist,src=2,dst=3,val=20, -numa dist,src=2,dst=4,val=30, \
+    -numa dist,src=2,dst=5,val=40, \
+    -numa dist,src=3,dst=4,val=20, -numa dist,src=3,dst=5,val=30, \
+    -numa dist,src=4,dst=5,val=20
+
+Signed-off-by: Valentin Schneider <valentin.schneider@arm.com>
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Acked-by: Mel Gorman <mgorman@techsingularity.net>
+Link: https://lore.kernel.org/lkml/jhjtux5edo2.mognet@arm.com
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ kernel/sched/topology.c | 33 +++++++++++++++++++++++++++++++++
+ 1 file changed, 33 insertions(+)
+
+diff --git a/kernel/sched/topology.c b/kernel/sched/topology.c
+index 90f3e5558..b296c1c6b 100644
+--- a/kernel/sched/topology.c
++++ b/kernel/sched/topology.c
+@@ -675,6 +675,7 @@ cpu_attach_domain(struct sched_domain *sd, struct root_domain *rd, int cpu)
+ {
+ 	struct rq *rq = cpu_rq(cpu);
+ 	struct sched_domain *tmp;
++	int numa_distance = 0;
+ 
+ 	/* Remove the sched domains which do not contribute to scheduling. */
+ 	for (tmp = sd; tmp; ) {
+@@ -706,6 +707,38 @@ cpu_attach_domain(struct sched_domain *sd, struct root_domain *rd, int cpu)
+ 			sd->child = NULL;
+ 	}
+ 
++	for (tmp = sd; tmp; tmp = tmp->parent)
++		numa_distance += !!(tmp->flags & SD_NUMA);
++
++	/*
++	 * FIXME: Diameter >=3 is misrepresented.
++	 *
++	 * Smallest diameter=3 topology is:
++	 *
++	 *   node   0   1   2   3
++	 *     0:  10  20  30  40
++	 *     1:  20  10  20  30
++	 *     2:  30  20  10  20
++	 *     3:  40  30  20  10
++	 *
++	 *   0 --- 1 --- 2 --- 3
++	 *
++	 * NUMA-3	0-3		N/A		N/A		0-3
++	 *  groups:	{0-2},{1-3}					{1-3},{0-2}
++	 *
++	 * NUMA-2	0-2		0-3		0-3		1-3
++	 *  groups:	{0-1},{1-3}	{0-2},{2-3}	{1-3},{0-1}	{2-3},{0-2}
++	 *
++	 * NUMA-1	0-1		0-2		1-3		2-3
++	 *  groups:	{0},{1}		{1},{2},{0}	{2},{3},{1}	{3},{2}
++	 *
++	 * NUMA-0	0		1		2		3
++	 *
++	 * The NUMA-2 groups for nodes 0 and 3 are obviously buggered, as the
++	 * group span isn't a subset of the domain span.
++	 */
++	WARN_ONCE(numa_distance > 2, "Shortest NUMA path spans too many nodes\n");
++
+ 	sched_domain_debug(sd, cpu);
+ 
+ 	rq_attach_root(rq, rd);
+-- 
+2.29.2
+
+From 9032dc211523f7cd5395302a0658c306249553f4 Mon Sep 17 00:00:00 2001
+From: Barry Song <song.bao.hua@hisilicon.com>
+Date: Sat, 14 Nov 2020 00:50:18 +1300
+Subject: [PATCH] Documentation: scheduler: fix information on arch SD flags,
+ sched_domain and sched_debug
+
+This document seems to be out of date for many, many years. Even it has
+misspelled from the first day.
+ARCH_HASH_SCHED_TUNE should be ARCH_HAS_SCHED_TUNE
+ARCH_HASH_SCHED_DOMAIN should be ARCH_HAS_SCHED_DOMAIN
+
+Since v2.6.14, kernel completely deleted the relevant code and even
+arch_init_sched_domains() was deleted.
+
+Right now, kernel is asking architectures to call set_sched_topology() to
+override the default sched domains.
+
+On the other hand, to print the schedule debug information, users need to
+set sched_debug cmdline or enable it by sysfs entry. So this patch also
+adds the description for sched_debug.
+
+Signed-off-by: Barry Song <song.bao.hua@hisilicon.com>
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Reviewed-by: Valentin Schneider <valentin.schneider@arm.com>
+Link: https://lkml.kernel.org/r/20201113115018.1628-1-song.bao.hua@hisilicon.com
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ Documentation/scheduler/sched-domains.rst | 26 ++++++++++-------------
+ 1 file changed, 11 insertions(+), 15 deletions(-)
+
+diff --git a/Documentation/scheduler/sched-domains.rst b/Documentation/scheduler/sched-domains.rst
+index 5c4b7f4f0..8582fa5e9 100644
+--- a/Documentation/scheduler/sched-domains.rst
++++ b/Documentation/scheduler/sched-domains.rst
+@@ -65,21 +65,17 @@ of the SMP domain will span the entire machine, with each group having the
+ cpumask of a node. Or, you could do multi-level NUMA or Opteron, for example,
+ might have just one domain covering its one NUMA level.
+ 
+-The implementor should read comments in include/linux/sched.h:
+-struct sched_domain fields, SD_FLAG_*, SD_*_INIT to get an idea of
+-the specifics and what to tune.
++The implementor should read comments in include/linux/sched/sd_flags.h:
++SD_* to get an idea of the specifics and what to tune for the SD flags
++of a sched_domain.
+ 
+-Architectures may retain the regular override the default SD_*_INIT flags
+-while using the generic domain builder in kernel/sched/core.c if they wish to
+-retain the traditional SMT->SMP->NUMA topology (or some subset of that). This
+-can be done by #define'ing ARCH_HASH_SCHED_TUNE.
+-
+-Alternatively, the architecture may completely override the generic domain
+-builder by #define'ing ARCH_HASH_SCHED_DOMAIN, and exporting your
+-arch_init_sched_domains function. This function will attach domains to all
+-CPUs using cpu_attach_domain.
++Architectures may override the generic domain builder and the default SD flags
++for a given topology level by creating a sched_domain_topology_level array and
++calling set_sched_topology() with this array as the parameter.
+ 
+ The sched-domains debugging infrastructure can be enabled by enabling
+-CONFIG_SCHED_DEBUG. This enables an error checking parse of the sched domains
+-which should catch most possible errors (described above). It also prints out
+-the domain structure in a visual format.
++CONFIG_SCHED_DEBUG and adding 'sched_debug' to your cmdline. If you forgot to
++tweak your cmdline, you can also flip the /sys/kernel/debug/sched_debug
++knob. This enables an error checking parse of the sched domains which should
++catch most possible errors (described above). It also prints out the domain
++structure in a visual format.
+-- 
+2.29.2
+
+From b19a888c1e9bdf12e0d8dd9aeb887ca7de91c8a5 Mon Sep 17 00:00:00 2001
+From: Tal Zussman <tz2294@columbia.edu>
+Date: Thu, 12 Nov 2020 19:51:56 -0500
+Subject: [PATCH] sched/core: Fix typos in comments
+
+Signed-off-by: Tal Zussman <tz2294@columbia.edu>
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Link: https://lkml.kernel.org/r/20201113005156.GA8408@charmander
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ kernel/sched/core.c | 30 +++++++++++++++---------------
+ 1 file changed, 15 insertions(+), 15 deletions(-)
+
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index 28d541a3c..a9e6d630e 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -97,7 +97,7 @@ int sysctl_sched_rt_runtime = 950000;
+  *
+  * Normal scheduling state is serialized by rq->lock. __schedule() takes the
+  * local CPU's rq->lock, it optionally removes the task from the runqueue and
+- * always looks at the local rq data structures to find the most elegible task
++ * always looks at the local rq data structures to find the most eligible task
+  * to run next.
+  *
+  * Task enqueue is also under rq->lock, possibly taken from another CPU.
+@@ -518,7 +518,7 @@ static bool __wake_q_add(struct wake_q_head *head, struct task_struct *task)
+ 
+ 	/*
+ 	 * Atomically grab the task, if ->wake_q is !nil already it means
+-	 * its already queued (either by us or someone else) and will get the
++	 * it's already queued (either by us or someone else) and will get the
+ 	 * wakeup due to that.
+ 	 *
+ 	 * In order to ensure that a pending wakeup will observe our pending
+@@ -769,7 +769,7 @@ bool sched_can_stop_tick(struct rq *rq)
+ 		return false;
+ 
+ 	/*
+-	 * If there are more than one RR tasks, we need the tick to effect the
++	 * If there are more than one RR tasks, we need the tick to affect the
+ 	 * actual RR behaviour.
+ 	 */
+ 	if (rq->rt.rr_nr_running) {
+@@ -1187,14 +1187,14 @@ static inline void uclamp_rq_dec_id(struct rq *rq, struct task_struct *p,
+ 	 * accounting was performed at enqueue time and we can just return
+ 	 * here.
+ 	 *
+-	 * Need to be careful of the following enqeueue/dequeue ordering
++	 * Need to be careful of the following enqueue/dequeue ordering
+ 	 * problem too
+ 	 *
+ 	 *	enqueue(taskA)
+ 	 *	// sched_uclamp_used gets enabled
+ 	 *	enqueue(taskB)
+ 	 *	dequeue(taskA)
+-	 *	// Must not decrement bukcet->tasks here
++	 *	// Must not decrement bucket->tasks here
+ 	 *	dequeue(taskB)
+ 	 *
+ 	 * where we could end up with stale data in uc_se and
+@@ -2924,7 +2924,7 @@ static void ttwu_do_wakeup(struct rq *rq, struct task_struct *p, int wake_flags,
+ #ifdef CONFIG_SMP
+ 	if (p->sched_class->task_woken) {
+ 		/*
+-		 * Our task @p is fully woken up and running; so its safe to
++		 * Our task @p is fully woken up and running; so it's safe to
+ 		 * drop the rq->lock, hereafter rq is only used for statistics.
+ 		 */
+ 		rq_unpin_lock(rq, rf);
+@@ -3411,7 +3411,7 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
+ 
+ 	/*
+ 	 * If the owning (remote) CPU is still in the middle of schedule() with
+-	 * this task as prev, wait until its done referencing the task.
++	 * this task as prev, wait until it's done referencing the task.
+ 	 *
+ 	 * Pairs with the smp_store_release() in finish_task().
+ 	 *
+@@ -3816,7 +3816,7 @@ void wake_up_new_task(struct task_struct *p)
+ #ifdef CONFIG_SMP
+ 	if (p->sched_class->task_woken) {
+ 		/*
+-		 * Nothing relies on rq->lock after this, so its fine to
++		 * Nothing relies on rq->lock after this, so it's fine to
+ 		 * drop it.
+ 		 */
+ 		rq_unpin_lock(rq, &rf);
+@@ -4343,7 +4343,7 @@ unsigned long nr_iowait_cpu(int cpu)
+ }
+ 
+ /*
+- * IO-wait accounting, and how its mostly bollocks (on SMP).
++ * IO-wait accounting, and how it's mostly bollocks (on SMP).
+  *
+  * The idea behind IO-wait account is to account the idle time that we could
+  * have spend running if it were not for IO. That is, if we were to improve the
+@@ -4838,7 +4838,7 @@ pick_next_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
+ 	/*
+ 	 * Optimization: we know that if all tasks are in the fair class we can
+ 	 * call that function directly, but only if the @prev task wasn't of a
+-	 * higher scheduling class, because otherwise those loose the
++	 * higher scheduling class, because otherwise those lose the
+ 	 * opportunity to pull in more work from other CPUs.
+ 	 */
+ 	if (likely(prev->sched_class <= &fair_sched_class &&
+@@ -5361,7 +5361,7 @@ void rt_mutex_setprio(struct task_struct *p, struct task_struct *pi_task)
+ 	 * right. rt_mutex_slowunlock()+rt_mutex_postunlock() work together to
+ 	 * ensure a task is de-boosted (pi_task is set to NULL) before the
+ 	 * task is allowed to run again (and can exit). This ensures the pointer
+-	 * points to a blocked task -- which guaratees the task is present.
++	 * points to a blocked task -- which guarantees the task is present.
+ 	 */
+ 	p->pi_top_task = pi_task;
+ 
+@@ -5479,7 +5479,7 @@ void set_user_nice(struct task_struct *p, long nice)
+ 	/*
+ 	 * The RT priorities are set via sched_setscheduler(), but we still
+ 	 * allow the 'normal' nice value to be set - but as expected
+-	 * it wont have any effect on scheduling until the task is
++	 * it won't have any effect on scheduling until the task is
+ 	 * SCHED_DEADLINE, SCHED_FIFO or SCHED_RR:
+ 	 */
+ 	if (task_has_dl_policy(p) || task_has_rt_policy(p)) {
+@@ -6668,7 +6668,7 @@ EXPORT_SYMBOL(__cond_resched_lock);
+  *
+  * The scheduler is at all times free to pick the calling task as the most
+  * eligible task to run, if removing the yield() call from your code breaks
+- * it, its already broken.
++ * it, it's already broken.
+  *
+  * Typical broken usage is:
+  *
+@@ -7042,7 +7042,7 @@ void init_idle(struct task_struct *idle, int cpu)
+ 
+ #ifdef CONFIG_SMP
+ 	/*
+-	 * Its possible that init_idle() gets called multiple times on a task,
++	 * It's possible that init_idle() gets called multiple times on a task,
+ 	 * in that case do_set_cpus_allowed() will not do the right thing.
+ 	 *
+ 	 * And since this is boot we can forgo the serialization.
+@@ -8225,7 +8225,7 @@ static int cpu_cgroup_can_attach(struct cgroup_taskset *tset)
+ 			return -EINVAL;
+ #endif
+ 		/*
+-		 * Serialize against wake_up_new_task() such that if its
++		 * Serialize against wake_up_new_task() such that if it's
+ 		 * running, we're sure to observe its full state.
+ 		 */
+ 		raw_spin_lock_irq(&task->pi_lock);
+-- 
+2.29.2
+
+From 480a6ca2dc6ed82c783faf7e4a9644769b8397d8 Mon Sep 17 00:00:00 2001
+From: Dietmar Eggemann <dietmar.eggemann@arm.com>
+Date: Fri, 13 Nov 2020 12:34:54 +0100
+Subject: [PATCH] sched/uclamp: Allow to reset a task uclamp constraint value
+
+In case the user wants to stop controlling a uclamp constraint value
+for a task, use the magic value -1 in sched_util_{min,max} with the
+appropriate sched_flags (SCHED_FLAG_UTIL_CLAMP_{MIN,MAX}) to indicate
+the reset.
+
+The advantage over the 'additional flag' approach (i.e. introducing
+SCHED_FLAG_UTIL_CLAMP_RESET) is that no additional flag has to be
+exported via uapi. This avoids the need to document how this new flag
+has be used in conjunction with the existing uclamp related flags.
+
+The following subtle issue is fixed as well. When a uclamp constraint
+value is set on a !user_defined uclamp_se it is currently first reset
+and then set.
+Fix this by AND'ing !user_defined with !SCHED_FLAG_UTIL_CLAMP which
+stands for the 'sched class change' case.
+The related condition 'if (uc_se->user_defined)' moved from
+__setscheduler_uclamp() into uclamp_reset().
+
+Signed-off-by: Dietmar Eggemann <dietmar.eggemann@arm.com>
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Reviewed-by: Yun Hsiang <hsiang023167@gmail.com>
+Link: https://lkml.kernel.org/r/20201113113454.25868-1-dietmar.eggemann@arm.com
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ include/uapi/linux/sched/types.h |  2 +
+ kernel/sched/core.c              | 70 +++++++++++++++++++++++---------
+ 2 files changed, 53 insertions(+), 19 deletions(-)
+
+diff --git a/include/uapi/linux/sched/types.h b/include/uapi/linux/sched/types.h
+index c852153dd..f2c4589d4 100644
+--- a/include/uapi/linux/sched/types.h
++++ b/include/uapi/linux/sched/types.h
+@@ -96,6 +96,8 @@ struct sched_param {
+  * on a CPU with a capacity big enough to fit the specified value.
+  * A task with a max utilization value smaller than 1024 is more likely
+  * scheduled on a CPU with no more capacity than the specified value.
++ *
++ * A task utilization boundary can be reset by setting the attribute to -1.
+  */
+ struct sched_attr {
+ 	__u32 size;
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index a9e6d630e..e6473ecaa 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -1413,17 +1413,24 @@ int sysctl_sched_uclamp_handler(struct ctl_table *table, int write,
+ static int uclamp_validate(struct task_struct *p,
+ 			   const struct sched_attr *attr)
+ {
+-	unsigned int lower_bound = p->uclamp_req[UCLAMP_MIN].value;
+-	unsigned int upper_bound = p->uclamp_req[UCLAMP_MAX].value;
++	int util_min = p->uclamp_req[UCLAMP_MIN].value;
++	int util_max = p->uclamp_req[UCLAMP_MAX].value;
+ 
+-	if (attr->sched_flags & SCHED_FLAG_UTIL_CLAMP_MIN)
+-		lower_bound = attr->sched_util_min;
+-	if (attr->sched_flags & SCHED_FLAG_UTIL_CLAMP_MAX)
+-		upper_bound = attr->sched_util_max;
++	if (attr->sched_flags & SCHED_FLAG_UTIL_CLAMP_MIN) {
++		util_min = attr->sched_util_min;
+ 
+-	if (lower_bound > upper_bound)
+-		return -EINVAL;
+-	if (upper_bound > SCHED_CAPACITY_SCALE)
++		if (util_min + 1 > SCHED_CAPACITY_SCALE + 1)
++			return -EINVAL;
++	}
++
++	if (attr->sched_flags & SCHED_FLAG_UTIL_CLAMP_MAX) {
++		util_max = attr->sched_util_max;
++
++		if (util_max + 1 > SCHED_CAPACITY_SCALE + 1)
++			return -EINVAL;
++	}
++
++	if (util_min != -1 && util_max != -1 && util_min > util_max)
+ 		return -EINVAL;
+ 
+ 	/*
+@@ -1438,20 +1445,41 @@ static int uclamp_validate(struct task_struct *p,
+ 	return 0;
+ }
+ 
++static bool uclamp_reset(const struct sched_attr *attr,
++			 enum uclamp_id clamp_id,
++			 struct uclamp_se *uc_se)
++{
++	/* Reset on sched class change for a non user-defined clamp value. */
++	if (likely(!(attr->sched_flags & SCHED_FLAG_UTIL_CLAMP)) &&
++	    !uc_se->user_defined)
++		return true;
++
++	/* Reset on sched_util_{min,max} == -1. */
++	if (clamp_id == UCLAMP_MIN &&
++	    attr->sched_flags & SCHED_FLAG_UTIL_CLAMP_MIN &&
++	    attr->sched_util_min == -1) {
++		return true;
++	}
++
++	if (clamp_id == UCLAMP_MAX &&
++	    attr->sched_flags & SCHED_FLAG_UTIL_CLAMP_MAX &&
++	    attr->sched_util_max == -1) {
++		return true;
++	}
++
++	return false;
++}
++
+ static void __setscheduler_uclamp(struct task_struct *p,
+ 				  const struct sched_attr *attr)
+ {
+ 	enum uclamp_id clamp_id;
+ 
+-	/*
+-	 * On scheduling class change, reset to default clamps for tasks
+-	 * without a task-specific value.
+-	 */
+ 	for_each_clamp_id(clamp_id) {
+ 		struct uclamp_se *uc_se = &p->uclamp_req[clamp_id];
++		unsigned int value;
+ 
+-		/* Keep using defined clamps across class changes */
+-		if (uc_se->user_defined)
++		if (!uclamp_reset(attr, clamp_id, uc_se))
+ 			continue;
+ 
+ 		/*
+@@ -1459,21 +1487,25 @@ static void __setscheduler_uclamp(struct task_struct *p,
+ 		 * at runtime.
+ 		 */
+ 		if (unlikely(rt_task(p) && clamp_id == UCLAMP_MIN))
+-			__uclamp_update_util_min_rt_default(p);
++			value = sysctl_sched_uclamp_util_min_rt_default;
+ 		else
+-			uclamp_se_set(uc_se, uclamp_none(clamp_id), false);
++			value = uclamp_none(clamp_id);
++
++		uclamp_se_set(uc_se, value, false);
+ 
+ 	}
+ 
+ 	if (likely(!(attr->sched_flags & SCHED_FLAG_UTIL_CLAMP)))
+ 		return;
+ 
+-	if (attr->sched_flags & SCHED_FLAG_UTIL_CLAMP_MIN) {
++	if (attr->sched_flags & SCHED_FLAG_UTIL_CLAMP_MIN &&
++	    attr->sched_util_min != -1) {
+ 		uclamp_se_set(&p->uclamp_req[UCLAMP_MIN],
+ 			      attr->sched_util_min, true);
+ 	}
+ 
+-	if (attr->sched_flags & SCHED_FLAG_UTIL_CLAMP_MAX) {
++	if (attr->sched_flags & SCHED_FLAG_UTIL_CLAMP_MAX &&
++	    attr->sched_util_max != -1) {
+ 		uclamp_se_set(&p->uclamp_req[UCLAMP_MAX],
+ 			      attr->sched_util_max, true);
+ 	}
+-- 
+2.29.2
+
+From 31f6a8c0a471be7d7d05c93eac50fcb729e79b9d Mon Sep 17 00:00:00 2001
+From: Ionela Voinescu <ionela.voinescu@arm.com>
+Date: Tue, 27 Oct 2020 18:07:11 +0000
+Subject: [PATCH] sched/topology,schedutil: Wrap sched domains rebuild
+
+Add the rebuild_sched_domains_energy() function to wrap the functionality
+that rebuilds the scheduling domains if any of the Energy Aware Scheduling
+(EAS) initialisation conditions change. This functionality is used when
+schedutil is added or removed or when EAS is enabled or disabled
+through the sched_energy_aware sysctl.
+
+Therefore, create a single function that is used in both these cases and
+that can be later reused.
+
+Signed-off-by: Ionela Voinescu <ionela.voinescu@arm.com>
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Acked-by: Quentin Perret <qperret@google.com>
+Acked-by: Rafael J. Wysocki <rafael.j.wysocki@intel.com>
+Link: https://lkml.kernel.org/r/20201027180713.7642-2-ionela.voinescu@arm.com
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ include/linux/sched/topology.h   |  8 ++++++++
+ kernel/sched/cpufreq_schedutil.c |  9 +--------
+ kernel/sched/topology.c          | 18 +++++++++++-------
+ 3 files changed, 20 insertions(+), 15 deletions(-)
+
+diff --git a/include/linux/sched/topology.h b/include/linux/sched/topology.h
+index 9ef7bf686..8f0f778b7 100644
+--- a/include/linux/sched/topology.h
++++ b/include/linux/sched/topology.h
+@@ -225,6 +225,14 @@ static inline bool cpus_share_cache(int this_cpu, int that_cpu)
+ 
+ #endif	/* !CONFIG_SMP */
+ 
++#if defined(CONFIG_ENERGY_MODEL) && defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
++extern void rebuild_sched_domains_energy(void);
++#else
++static inline void rebuild_sched_domains_energy(void)
++{
++}
++#endif
++
+ #ifndef arch_scale_cpu_capacity
+ /**
+  * arch_scale_cpu_capacity - get the capacity scale factor of a given CPU.
+diff --git a/kernel/sched/cpufreq_schedutil.c b/kernel/sched/cpufreq_schedutil.c
+index e254745a8..37b303890 100644
+--- a/kernel/sched/cpufreq_schedutil.c
++++ b/kernel/sched/cpufreq_schedutil.c
+@@ -899,16 +899,9 @@ struct cpufreq_governor *cpufreq_default_governor(void)
+ cpufreq_governor_init(schedutil_gov);
+ 
+ #ifdef CONFIG_ENERGY_MODEL
+-extern bool sched_energy_update;
+-extern struct mutex sched_energy_mutex;
+-
+ static void rebuild_sd_workfn(struct work_struct *work)
+ {
+-	mutex_lock(&sched_energy_mutex);
+-	sched_energy_update = true;
+-	rebuild_sched_domains();
+-	sched_energy_update = false;
+-	mutex_unlock(&sched_energy_mutex);
++	rebuild_sched_domains_energy();
+ }
+ static DECLARE_WORK(rebuild_sd_work, rebuild_sd_workfn);
+ 
+diff --git a/kernel/sched/topology.c b/kernel/sched/topology.c
+index b296c1c6b..04d9ebfae 100644
+--- a/kernel/sched/topology.c
++++ b/kernel/sched/topology.c
+@@ -211,6 +211,15 @@ unsigned int sysctl_sched_energy_aware = 1;
+ DEFINE_MUTEX(sched_energy_mutex);
+ bool sched_energy_update;
+ 
++void rebuild_sched_domains_energy(void)
++{
++	mutex_lock(&sched_energy_mutex);
++	sched_energy_update = true;
++	rebuild_sched_domains();
++	sched_energy_update = false;
++	mutex_unlock(&sched_energy_mutex);
++}
++
+ #ifdef CONFIG_PROC_SYSCTL
+ int sched_energy_aware_handler(struct ctl_table *table, int write,
+ 		void *buffer, size_t *lenp, loff_t *ppos)
+@@ -223,13 +232,8 @@ int sched_energy_aware_handler(struct ctl_table *table, int write,
+ 	ret = proc_dointvec_minmax(table, write, buffer, lenp, ppos);
+ 	if (!ret && write) {
+ 		state = static_branch_unlikely(&sched_energy_present);
+-		if (state != sysctl_sched_energy_aware) {
+-			mutex_lock(&sched_energy_mutex);
+-			sched_energy_update = 1;
+-			rebuild_sched_domains();
+-			sched_energy_update = 0;
+-			mutex_unlock(&sched_energy_mutex);
+-		}
++		if (state != sysctl_sched_energy_aware)
++			rebuild_sched_domains_energy();
+ 	}
+ 
+ 	return ret;
+-- 
+2.29.2
+
+From ecec9e86d1a366f97c827ab4a8134ec06ccf031a Mon Sep 17 00:00:00 2001
+From: Ionela Voinescu <ionela.voinescu@arm.com>
+Date: Tue, 27 Oct 2020 18:07:12 +0000
+Subject: [PATCH] arm64: Rebuild sched domains on invariance status changes
+
+Task scheduler behavior depends on frequency invariance (FI) support and
+the resulting invariant load tracking signals. For example, in order to
+make accurate predictions across CPUs for all performance states, Energy
+Aware Scheduling (EAS) needs frequency-invariant load tracking signals
+and therefore it has a direct dependency on FI. This dependency is known,
+but EAS enablement is not yet conditioned on the presence of FI during
+the built of the scheduling domain hierarchy.
+
+Before this is done, the following must be considered: while
+arch_scale_freq_invariant() will see changes in FI support and could
+be used to condition the use of EAS, it could return different values
+during system initialisation.
+
+For arm64, such a scenario will happen for a system that does not support
+cpufreq driven FI, but does support counter-driven FI. For such a system,
+arch_scale_freq_invariant() will return false if called before counter
+based FI initialisation, but change its status to true after it.
+If EAS becomes explicitly dependent on FI this would affect the task
+scheduler behavior which builds its scheduling domain hierarchy well
+before the late counter-based FI init. During that process, EAS would be
+disabled due to its dependency on FI.
+
+Two points of future early calls to arch_scale_freq_invariant() which
+would determine EAS enablement are:
+ - (1) drivers/base/arch_topology.c:126 <<update_topology_flags_workfn>>
+		rebuild_sched_domains();
+       This will happen after CPU capacity initialisation.
+ - (2) kernel/sched/cpufreq_schedutil.c:917 <<rebuild_sd_workfn>>
+		rebuild_sched_domains_energy();
+		-->rebuild_sched_domains();
+       This will happen during sched_cpufreq_governor_change() for the
+       schedutil cpufreq governor.
+
+Therefore, before enforcing the presence of FI support for the use of EAS,
+ensure the following: if there is a change in FI support status after
+counter init, use the existing rebuild_sched_domains_energy() function to
+trigger a rebuild of the scheduling and performance domains that in turn
+will determine the enablement of EAS.
+
+Signed-off-by: Ionela Voinescu <ionela.voinescu@arm.com>
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Acked-by: Catalin Marinas <catalin.marinas@arm.com>
+Link: https://lkml.kernel.org/r/20201027180713.7642-3-ionela.voinescu@arm.com
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ arch/arm64/kernel/topology.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/arch/arm64/kernel/topology.c b/arch/arm64/kernel/topology.c
+index 543c67cae..2a9b69fda 100644
+--- a/arch/arm64/kernel/topology.c
++++ b/arch/arm64/kernel/topology.c
+@@ -213,6 +213,7 @@ static DEFINE_STATIC_KEY_FALSE(amu_fie_key);
+ 
+ static int __init init_amu_fie(void)
+ {
++	bool invariance_status = topology_scale_freq_invariant();
+ 	cpumask_var_t valid_cpus;
+ 	bool have_policy = false;
+ 	int ret = 0;
+@@ -255,6 +256,15 @@ static int __init init_amu_fie(void)
+ 	if (!topology_scale_freq_invariant())
+ 		static_branch_disable(&amu_fie_key);
+ 
++	/*
++	 * Task scheduler behavior depends on frequency invariance support,
++	 * either cpufreq or counter driven. If the support status changes as
++	 * a result of counter initialisation and use, retrigger the build of
++	 * scheduling domains to ensure the information is propagated properly.
++	 */
++	if (invariance_status != topology_scale_freq_invariant())
++		rebuild_sched_domains_energy();
++
+ free_valid_mask:
+ 	free_cpumask_var(valid_cpus);
+ 
+-- 
+2.29.2
+
+From fa50e2b452c60cff9f4000de5b372a61d6695c26 Mon Sep 17 00:00:00 2001
+From: Ionela Voinescu <ionela.voinescu@arm.com>
+Date: Tue, 27 Oct 2020 18:07:13 +0000
+Subject: [PATCH] sched/topology: Condition EAS enablement on FIE support
+
+In order to make accurate predictions across CPUs and for all performance
+states, Energy Aware Scheduling (EAS) needs frequency-invariant load
+tracking signals.
+
+EAS task placement aims to minimize energy consumption, and does so in
+part by limiting the search space to only CPUs with the highest spare
+capacity (CPU capacity - CPU utilization) in their performance domain.
+Those candidates are the placement choices that will keep frequency at
+its lowest possible and therefore save the most energy.
+
+But without frequency invariance, a CPU's utilization is relative to the
+CPU's current performance level, and not relative to its maximum
+performance level, which determines its capacity. As a result, it will
+fail to correctly indicate any potential spare capacity obtained by an
+increase in a CPU's performance level. Therefore, a non-invariant
+utilization signal would render the EAS task placement logic invalid.
+
+Now that we properly report support for the Frequency Invariance Engine
+(FIE) through arch_scale_freq_invariant() for arm and arm64 systems,
+while also ensuring a re-evaluation of the EAS use conditions for
+possible invariance status change, we can assert this is the case when
+initializing EAS. Warn and bail out otherwise.
+
+Suggested-by: Quentin Perret <qperret@google.com>
+Signed-off-by: Ionela Voinescu <ionela.voinescu@arm.com>
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Link: https://lkml.kernel.org/r/20201027180713.7642-4-ionela.voinescu@arm.com
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ kernel/sched/topology.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/kernel/sched/topology.c b/kernel/sched/topology.c
+index 04d9ebfae..5d3675c7a 100644
+--- a/kernel/sched/topology.c
++++ b/kernel/sched/topology.c
+@@ -328,6 +328,7 @@ static void sched_energy_set(bool has_eas)
+  *    3. no SMT is detected.
+  *    4. the EM complexity is low enough to keep scheduling overheads low;
+  *    5. schedutil is driving the frequency of all CPUs of the rd;
++ *    6. frequency invariance support is present;
+  *
+  * The complexity of the Energy Model is defined as:
+  *
+@@ -376,6 +377,14 @@ static bool build_perf_domains(const struct cpumask *cpu_map)
+ 		goto free;
+ 	}
+ 
++	if (!arch_scale_freq_invariant()) {
++		if (sched_debug()) {
++			pr_warn("rd %*pbl: Disabling EAS: frequency-invariant load tracking not yet supported",
++				cpumask_pr_args(cpu_map));
++		}
++		goto free;
++	}
++
+ 	for_each_cpu(i, cpu_map) {
+ 		/* Skip already covered CPUs. */
+ 		if (find_pd(pd, i))
+-- 
+2.29.2
+
