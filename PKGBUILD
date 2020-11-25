@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=0
 _rc=rc5
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=1
+pkgrel=2
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -30,7 +30,7 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     #"prepatch-${_basekernel/./}-g${_stablequeue}.patch"
     #
     # sched/core patches
-    0001-sched-tip-picks-20201123.patch
+    0001-sched-tip-picks-20201124.patch
     #SPLAT-sched-delayed-thread-migration.patch -- disabled because of core dumps
     # RAPL for AMD 17h+19h
     0002-powercap-enable-rapl-for-fam17h-and-fam19h.patch
@@ -65,8 +65,9 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     #
     # syscall_work and syscall user dispatcher with necessary patches from tip.git
     1001-x86-entry-20201029.patch
-    1002-core-entry-20201116.patch
+    1002-core-entry-20201125.patch
     1003-syscall-user-dispatcher-v7.patch
+    1004-entry-fix-boot-for-CONFIG_GENERIC_ENTRY.patch
     #
     # MANJARO Patches
     #
@@ -101,7 +102,7 @@ sha256sums=('8fb8b10f24fb51a37e35136b916147b2d187cbb9ed13447a560fb9d5fedefe84'
             '07782cffdd0a324e4c67e16fa51296a8f70f362c8072e02b68acfb46840cc3e5'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
-            'dd77647f58552a8a4ee79b809884d4bece3ab30f2e0a2ce771efef361843c9a8'
+            '8488374584d5a84b5d87c3f3102df9eac3d503e87ebe68af4e41ad86e7cc840e'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
             '4976b4de940b27a31fd9b4655abbdc5b61120135b63a822d925ff16e097747bf'
@@ -121,6 +122,7 @@ sha256sums=('8fb8b10f24fb51a37e35136b916147b2d187cbb9ed13447a560fb9d5fedefe84'
             '95bcb856f9b8b787703ea39b484661ef31341f0e218d863f8450975c29796516'
             '0a685c6e24c900a8d77c7889f07a451ed28264665082929c61713fceba2ccddf'
             '95cafe60c42f94d0f73207c7c5a97f8da9078482a8ac26f063e628697e28b49e'
+            'a5ff08abc8add2166f02b43a51c8fa8852a23eebf68559bfdcfb8163e3da838e'
             '7fd689f4ec88364d1ac00007e6f1e273ee9b53cae187e0f70e7f810303dc9303'
             'f7a36231b794022d49e53f464d25e48f2eebf6266c2cbe5756c63aa3bf03bae7'
             'acca50a9ffee480f29bd7de6e8b5963dc0d37d3103871d75bcffdb2acce6c82d'
@@ -145,9 +147,9 @@ _clang=0
 if [[ ${_clang} -eq 1 ]]; then
 	LLVMOPTS="LLVM=1 LLVM_IAS=0"
 	CLANGOPTS="CC=clang LD=ld.lld"
-	source+=('clang-ias-dwarf-fixes.patch' 'clang-lto-20201121.patch')
+	source+=('clang-ias-dwarf-fixes.patch' 'clang-lto-20201125.patch')
 	sha256sums+=('254401bc81c5c865f71c8195fb47f7db1b44227a2597f30ec3e83dd006f402fc'
-		'6b584849e07c2c0c68911c7c2ba1f4195dfcaec7bdb96125f55f853e5e2c30b3')
+		'371c2e15eb821b2adbb0fb1e0a375dec212c9f1067d9311da2bdb4d95ebb12a0')
 else
 	LLVMOPTS=""
 	CLANGOPTS=""

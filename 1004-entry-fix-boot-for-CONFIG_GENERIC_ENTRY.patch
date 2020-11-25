@@ -1,0 +1,52 @@
+From b5515dc6bf77238d83c522ba21e85c23bef17f75 Mon Sep 17 00:00:00 2001
+From: torvic9 <torvic9@mailbox.org>
+Date: Wed, 25 Nov 2020 20:04:16 +0100
+Subject: [PATCH] entry: fix boot for !CONFIG_GENERIC_ENTRY
+
+commit 5903f61e035320104394f721f74cd22171636f63 from tip:core/entry
+
+torvic9: context fixes for application on top of syscall user dispatcher
+
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ include/linux/thread_info.h | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/include/linux/thread_info.h b/include/linux/thread_info.h
+index 45708a260..c8a974cea 100644
+--- a/include/linux/thread_info.h
++++ b/include/linux/thread_info.h
+@@ -35,6 +35,7 @@ enum {
+ 	GOOD_STACK,
+ };
+ 
++#ifdef CONFIG_GENERIC_ENTRY
+ enum syscall_work_bit {
+ 	SYSCALL_WORK_BIT_SECCOMP,
+ 	SYSCALL_WORK_BIT_SYSCALL_TRACEPOINT,
+@@ -50,6 +51,7 @@ enum syscall_work_bit {
+ #define SYSCALL_WORK_SYSCALL_EMU	BIT(SYSCALL_WORK_BIT_SYSCALL_EMU)
+ #define SYSCALL_WORK_SYSCALL_AUDIT	BIT(SYSCALL_WORK_BIT_SYSCALL_AUDIT)
+ #define SYSCALL_WORK_SYSCALL_USER_DISPATCH BIT(SYSCALL_WORK_BIT_SYSCALL_USER_DISPATCH)
++#endif
+ 
+ #include <asm/thread_info.h>
+ 
+@@ -131,11 +133,11 @@ static inline int test_ti_thread_flag(struct thread_info *ti, int flag)
+ #else /* CONFIG_GENERIC_ENTRY */
+ 
+ #define set_syscall_work(fl)						\
+-	set_ti_thread_flag(current_thread_info(), SYSCALL_WORK_##fl)
++	set_ti_thread_flag(current_thread_info(), TIF_##fl)
+ #define test_syscall_work(fl) \
+-	test_ti_thread_flag(current_thread_info(), SYSCALL_WORK_##fl)
++	test_ti_thread_flag(current_thread_info(), TIF_##fl)
+ #define clear_syscall_work(fl) \
+-	clear_ti_thread_flag(current_thread_info(), SYSCALL_WORK_##fl)
++	clear_ti_thread_flag(current_thread_info(), TIF_##fl)
+ 
+ #define set_task_syscall_work(t, fl) \
+ 	set_ti_thread_flag(task_thread_info(t), TIF_##fl)
+-- 
+2.29.2
+
