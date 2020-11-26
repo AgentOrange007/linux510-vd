@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=0
 _rc=rc5
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=2
+pkgrel=3
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -58,10 +58,11 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     # AMD enhancements
     0014-dma-add-support-for-amd-ptdma-controller-driver.patch
     0015-x86-set-and-use-cpu_die_id-on-amd-based-systems.patch
+    0016-acpi-add-processor-to-the-ignore-PSD-override-list.patch
     # amdgpu
-    0016-drm-amdgpu-disable-gfxoff-if-vcn-busy.patch
+    0017-drm-amdgpu-disable-gfxoff-if-vcn-busy.patch
     # timers/core updates
-    0017-timers-core-20201119.patch
+    0018-timers-core-20201119.patch
     #
     # syscall_work and syscall user dispatcher with necessary patches from tip.git
     1001-x86-entry-20201029.patch
@@ -117,6 +118,7 @@ sha256sums=('8fb8b10f24fb51a37e35136b916147b2d187cbb9ed13447a560fb9d5fedefe84'
             'e7d724ac15daf428aa1e6a03737e5c1d040892d55fda8a66897fcac9323f285c'
             '1f47d3e3956c41b47656f675a90fad9e318c7133ffe663dc0fd2c9aa0fbfeb3e'
             '162049ed45fbd4e0e2e8bc566978df0b39baece6f32b162c24fe742ecb441589'
+            '5000348583882523ef3c36df27eabf4355e83d0605081a3bf5d4aaa28e518162'
             '53d63d9ac1250893921c45931f4e9ab9584e24ae8e72f4eca2f78d2faf59713a'
             '5e91ab2f9143d9d0c2ce5c72395a71015c65bfa0153a57af54428b8a81290848'
             '95bcb856f9b8b787703ea39b484661ef31341f0e218d863f8450975c29796516'
