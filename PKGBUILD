@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=0
 _rc=rc5
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=2
+pkgrel=3
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -62,6 +62,9 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     0016-drm-amdgpu-disable-gfxoff-if-vcn-busy.patch
     # timers/core updates
     0017-timers-core-20201119.patch
+    # fix efivars
+    0018-efivars-revert-fix-memleak-in-efivarfs.patch
+    0019-efivars-set-generic-ops-before-loading-ssdt.patch
     #
     # syscall_work and syscall user dispatcher with necessary patches from tip.git
     1001-x86-entry-20201029.patch
@@ -119,6 +122,8 @@ sha256sums=('8fb8b10f24fb51a37e35136b916147b2d187cbb9ed13447a560fb9d5fedefe84'
             '162049ed45fbd4e0e2e8bc566978df0b39baece6f32b162c24fe742ecb441589'
             '53d63d9ac1250893921c45931f4e9ab9584e24ae8e72f4eca2f78d2faf59713a'
             '5e91ab2f9143d9d0c2ce5c72395a71015c65bfa0153a57af54428b8a81290848'
+            'cc5bc7cf1f2d3df38750ed66d141e901d6cbcbc90b6f5eb8ce1ec01519cdce66'
+            '08112952898a460b0715b9872183cf96f8e2d312228ddabd40b5c51d3e4a6629'
             '95bcb856f9b8b787703ea39b484661ef31341f0e218d863f8450975c29796516'
             '0a685c6e24c900a8d77c7889f07a451ed28264665082929c61713fceba2ccddf'
             '95cafe60c42f94d0f73207c7c5a97f8da9078482a8ac26f063e628697e28b49e'
