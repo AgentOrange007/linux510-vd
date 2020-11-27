@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=0
 _rc=rc5
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=3
+pkgrel=3.1
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -62,10 +62,10 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     # amdgpu
     0017-drm-amdgpu-disable-gfxoff-if-vcn-busy.patch
     # timers/core updates
-    0017-timers-core-20201119.patch
+    0018-timers-core-20201119.patch
     # fix efivars
-    0018-efivars-revert-fix-memleak-in-efivarfs.patch
-    0019-efivars-set-generic-ops-before-loading-ssdt.patch
+    0019-efivars-revert-fix-memleak-in-efivarfs.patch
+    0020-efivars-set-generic-ops-before-loading-ssdt.patch
     #
     # syscall_work and syscall user dispatcher with necessary patches from tip.git
     1001-x86-entry-20201029.patch
