@@ -64,7 +64,7 @@ package_linux510-vd-virtualbox-host-modules(){
   if [[ ${_signing} -eq 1 ]] ; then
   	echo -e "Signing modules with kernel key...\n"
   	for i in vbox{drv,netflt,netadp}.ko; do
-  		sign-file59.sh "${pkgdir}/usr/lib/modules/${_extramodules}/$i"
+  		sign-file510.sh "${pkgdir}/usr/lib/modules/${_extramodules}/$i"
   	done
   fi
   find "$pkgdir" -name '*.ko' -exec xz --lzma2=preset=4,dict=2MiB {} +

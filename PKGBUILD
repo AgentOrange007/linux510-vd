@@ -31,20 +31,16 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     #
     # sched/core patches
     0001-sched-tip-picks-20201124.patch
-    #SPLAT-sched-delayed-thread-migration.patch -- disabled because of core dumps
     # RAPL for AMD 17h+19h
     0002-powercap-enable-rapl-for-fam17h-and-fam19h.patch
     # little inlining fix for gcc/asm
     0003-asm-force-inlining-of-get_order.patch
     # zstd 1.4.6 from terrelln
     0004-update-to-zstd-146.patch
-    # futex_wait_multiple
-    0005-futex-futex_wait_multiple-krisman.patch
     # Arch patches
     0006-arch-patches510-${_archpatch}.patch::https://raw.githubusercontent.com/sirlucjan/kernel-patches/master/5.9/arch-patches-v5/0001-ZEN-Add-sysctl-and-CONFIG-to-disallow-unprivileged-C.patch
     # CPU patches
     0007-graysky-cpu-optimizations.patch
-    #0008-init-kconfig-enable-O3.patch
     0008-enable-O3-for-all-archs-and-add-option-for-O1.patch
     # Clear Linux
     0009-clearlinux-tweak-intel-cpuidle.patch
@@ -67,11 +63,13 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     0019-efivars-revert-fix-memleak-in-efivarfs.patch
     0020-efivars-set-generic-ops-before-loading-ssdt.patch
     #
+    # futex_wait_multiple
+    1001-futex-futex_wait_multiple-krisman.patch
     # syscall_work and syscall user dispatcher with necessary patches from tip.git
-    1001-x86-entry-20201029.patch
-    1002-core-entry-20201125.patch
-    1003-syscall-user-dispatcher-v7.patch
-    1004-entry-fix-boot-for-CONFIG_GENERIC_ENTRY.patch
+    1002-x86-entry-20201029.patch
+    1003-core-entry-20201125.patch
+    1004-syscall-user-dispatcher-v7.patch
+    1005-entry-fix-boot-for-CONFIG_GENERIC_ENTRY.patch
     #
     # MANJARO Patches
     #
@@ -110,7 +108,6 @@ sha256sums=('8fb8b10f24fb51a37e35136b916147b2d187cbb9ed13447a560fb9d5fedefe84'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
             '4976b4de940b27a31fd9b4655abbdc5b61120135b63a822d925ff16e097747bf'
-            'b86758554105a11900e60b1f83bd272aee8ce3af5c62a382160637844ee4f2a5'
             'b8e9973780dd75f630733a6e323897486d4d9f27d63ebefac48190e247767072'
             '429b41a987aa1a3b4975474d8b3ca2817a418435f4886e747140deed978ce284'
             '3d38fc4052b999b67aaed9fe9a4ba6ffd778ffbf7e94a66d5577391dbd08d12a'
@@ -126,6 +123,7 @@ sha256sums=('8fb8b10f24fb51a37e35136b916147b2d187cbb9ed13447a560fb9d5fedefe84'
             '5e91ab2f9143d9d0c2ce5c72395a71015c65bfa0153a57af54428b8a81290848'
             'cc5bc7cf1f2d3df38750ed66d141e901d6cbcbc90b6f5eb8ce1ec01519cdce66'
             '08112952898a460b0715b9872183cf96f8e2d312228ddabd40b5c51d3e4a6629'
+            'b86758554105a11900e60b1f83bd272aee8ce3af5c62a382160637844ee4f2a5'
             '95bcb856f9b8b787703ea39b484661ef31341f0e218d863f8450975c29796516'
             '0a685c6e24c900a8d77c7889f07a451ed28264665082929c61713fceba2ccddf'
             '95cafe60c42f94d0f73207c7c5a97f8da9078482a8ac26f063e628697e28b49e'
