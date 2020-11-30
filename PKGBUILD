@@ -147,9 +147,9 @@ _clang=0
 if [[ ${_clang} -eq 1 ]]; then
 	LLVMOPTS="LLVM=1 LLVM_IAS=0"
 	CLANGOPTS="CC=clang LD=ld.lld"
-	source+=('clang-ias-dwarf-fixes.patch' 'clang-lto-20201125.patch')
+	source+=('clang-ias-dwarf-fixes.patch' 'clang-lto-20201128.patch')
 	sha256sums+=('254401bc81c5c865f71c8195fb47f7db1b44227a2597f30ec3e83dd006f402fc'
-		'371c2e15eb821b2adbb0fb1e0a375dec212c9f1067d9311da2bdb4d95ebb12a0')
+		'e75c2e3eebfec4e18841a2fefc20d03e844e391461d1a8c26ac72653e6384a00')
 else
 	LLVMOPTS=""
 	CLANGOPTS=""
