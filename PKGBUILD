@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=0
 _rc=rc6
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=2
+pkgrel=3
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -59,6 +59,10 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     0017-drm-amdgpu-disable-gfxoff-if-vcn-busy.patch
     # timers/core updates
     0018-timers-core-20201119.patch
+    # cpuidle polling config
+    0019-cpuidle-allow-config-of-the-polling-interval-before-entering-cstate.patch
+    # resctrl fix for amd
+    0020-x86-resctrl-fix-amd-l3-qos-cdp.patch
     #
     # futex_wait_multiple
     1001-futex-futex_wait_multiple-krisman.patch
@@ -118,6 +122,8 @@ sha256sums=('d139d4cc8eb8b27364adc774c0df0feac39389beb4357a36d628a48c92fed393'
             '5000348583882523ef3c36df27eabf4355e83d0605081a3bf5d4aaa28e518162'
             '53d63d9ac1250893921c45931f4e9ab9584e24ae8e72f4eca2f78d2faf59713a'
             '5e91ab2f9143d9d0c2ce5c72395a71015c65bfa0153a57af54428b8a81290848'
+            '3fa15812652740a9164d49f2078db0828289ea566518f029ce103d5475ea4202'
+            '1ece5352ec69a10ff477073bf66bbb0efe5e59e12715b6f79a56c5cd2c7ed7e5'
             'b86758554105a11900e60b1f83bd272aee8ce3af5c62a382160637844ee4f2a5'
             '95bcb856f9b8b787703ea39b484661ef31341f0e218d863f8450975c29796516'
             '0a685c6e24c900a8d77c7889f07a451ed28264665082929c61713fceba2ccddf'
