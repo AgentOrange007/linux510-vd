@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=0
 _rc=rc6
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=3
+pkgrel=4
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -59,18 +59,16 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     0017-drm-amdgpu-disable-gfxoff-if-vcn-busy.patch
     # timers/core updates
     0018-timers-core-20201119.patch
-    # cpuidle polling config
-    0019-cpuidle-allow-config-of-the-polling-interval-before-entering-cstate.patch
+    # cpuidle polling patch
+    0019-cpuidle-select-polling-interval-based-on-cstate-with-a-longer-target-residency.patch
     # resctrl fix for amd
     0020-x86-resctrl-fix-amd-l3-qos-cdp.patch
     #
     # futex_wait_multiple
     1001-futex-futex_wait_multiple-krisman.patch
-    # syscall_work and syscall user dispatcher with necessary patches from tip.git
+    # x86/entry and core/entry with syscall user dispatcher
     1002-x86-entry-20201029.patch
-    1003-core-entry-20201125.patch
-    1004-syscall-user-dispatcher-v7.patch
-    1005-entry-fix-boot-for-CONFIG_GENERIC_ENTRY.patch
+    1003-core-entry-20201202.patch
     #
     # MANJARO Patches
     #
@@ -122,13 +120,11 @@ sha256sums=('d139d4cc8eb8b27364adc774c0df0feac39389beb4357a36d628a48c92fed393'
             '5000348583882523ef3c36df27eabf4355e83d0605081a3bf5d4aaa28e518162'
             '53d63d9ac1250893921c45931f4e9ab9584e24ae8e72f4eca2f78d2faf59713a'
             '5e91ab2f9143d9d0c2ce5c72395a71015c65bfa0153a57af54428b8a81290848'
-            '3fa15812652740a9164d49f2078db0828289ea566518f029ce103d5475ea4202'
+            '052b51392dc7f1c24fc354d5a21d87a78489a1999850a14b543502ed2009b653'
             '1ece5352ec69a10ff477073bf66bbb0efe5e59e12715b6f79a56c5cd2c7ed7e5'
             'b86758554105a11900e60b1f83bd272aee8ce3af5c62a382160637844ee4f2a5'
             '95bcb856f9b8b787703ea39b484661ef31341f0e218d863f8450975c29796516'
-            '0a685c6e24c900a8d77c7889f07a451ed28264665082929c61713fceba2ccddf'
-            '95cafe60c42f94d0f73207c7c5a97f8da9078482a8ac26f063e628697e28b49e'
-            'a5ff08abc8add2166f02b43a51c8fa8852a23eebf68559bfdcfb8163e3da838e'
+            'b41115f256a5d41a06897b9544660a6a02977642e68a985e0ad32b764944c82d'
             '7fd689f4ec88364d1ac00007e6f1e273ee9b53cae187e0f70e7f810303dc9303'
             'f7a36231b794022d49e53f464d25e48f2eebf6266c2cbe5756c63aa3bf03bae7'
             'acca50a9ffee480f29bd7de6e8b5963dc0d37d3103871d75bcffdb2acce6c82d'
