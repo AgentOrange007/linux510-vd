@@ -37,6 +37,8 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     0003-asm-force-inlining-of-get_order.patch
     # zstd 1.4.6 from terrelln
     0004-update-to-zstd-146-v6.patch
+    # timers/core updates
+    0005-timers-core-20201119.patch
     # Arch patches
     0006-arch-patches510-${_archpatch}.patch::https://raw.githubusercontent.com/sirlucjan/kernel-patches/master/5.9/arch-patches-v5/0001-ZEN-Add-sysctl-and-CONFIG-to-disallow-unprivileged-C.patch
     # CPU patches
@@ -57,12 +59,10 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     0016-acpi-add-processor-to-the-ignore-PSD-override-list.patch
     # amdgpu
     0017-drm-amdgpu-disable-gfxoff-if-vcn-busy.patch
-    # timers/core updates
-    0018-timers-core-20201119.patch
     # cpuidle polling patch
-    0019-cpuidle-select-polling-interval-based-on-cstate-with-a-longer-target-residency.patch
+    0018-cpuidle-select-polling-interval-based-on-cstate-with-a-longer-target-residency.patch
     # resctrl fix for amd
-    0020-x86-resctrl-fix-amd-l3-qos-cdp.patch
+    0019-x86-resctrl-fix-amd-l3-qos-cdp.patch
     #
     # futex_wait_multiple
     1001-futex-futex_wait_multiple-krisman.patch
@@ -107,6 +107,7 @@ sha256sums=('d139d4cc8eb8b27364adc774c0df0feac39389beb4357a36d628a48c92fed393'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
             '918b82ba1226edf5b7156c0039184bcec42b2d71f6cb6549d7806a558181bb3d'
+            '5e91ab2f9143d9d0c2ce5c72395a71015c65bfa0153a57af54428b8a81290848'
             'b8e9973780dd75f630733a6e323897486d4d9f27d63ebefac48190e247767072'
             '429b41a987aa1a3b4975474d8b3ca2817a418435f4886e747140deed978ce284'
             '3d38fc4052b999b67aaed9fe9a4ba6ffd778ffbf7e94a66d5577391dbd08d12a'
@@ -119,7 +120,6 @@ sha256sums=('d139d4cc8eb8b27364adc774c0df0feac39389beb4357a36d628a48c92fed393'
             '162049ed45fbd4e0e2e8bc566978df0b39baece6f32b162c24fe742ecb441589'
             '5000348583882523ef3c36df27eabf4355e83d0605081a3bf5d4aaa28e518162'
             '53d63d9ac1250893921c45931f4e9ab9584e24ae8e72f4eca2f78d2faf59713a'
-            '5e91ab2f9143d9d0c2ce5c72395a71015c65bfa0153a57af54428b8a81290848'
             '052b51392dc7f1c24fc354d5a21d87a78489a1999850a14b543502ed2009b653'
             '1ece5352ec69a10ff477073bf66bbb0efe5e59e12715b6f79a56c5cd2c7ed7e5'
             'b86758554105a11900e60b1f83bd272aee8ce3af5c62a382160637844ee4f2a5'
