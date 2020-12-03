@@ -36,7 +36,7 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     # little inlining fix for gcc/asm
     0003-asm-force-inlining-of-get_order.patch
     # zstd 1.4.6 from terrelln
-    0004-update-to-zstd-146-v6.patch
+    0004-update-to-zstd-146-v7.patch
     # timers/core updates
     0005-timers-core-20201119.patch
     # Arch patches
@@ -106,7 +106,7 @@ sha256sums=('d139d4cc8eb8b27364adc774c0df0feac39389beb4357a36d628a48c92fed393'
             '2b90cce6f5880356402e0c628bb500eab8117e6c21c77d492b0a324af21de3e1'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
-            '918b82ba1226edf5b7156c0039184bcec42b2d71f6cb6549d7806a558181bb3d'
+            'e784b4613dd8fcb8c065fe36df5f78f9bc7174c5b923b2384da031e79ee6ba7c'
             '5e91ab2f9143d9d0c2ce5c72395a71015c65bfa0153a57af54428b8a81290848'
             'b8e9973780dd75f630733a6e323897486d4d9f27d63ebefac48190e247767072'
             '429b41a987aa1a3b4975474d8b3ca2817a418435f4886e747140deed978ce284'
