@@ -79,7 +79,7 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     2004-tune-cpufreq-ondemand-settings.patch
     2005-optimise-kernel-and-module-compression.patch
     # ntfs3 driver
-    2006-ntfs-rw-gpl-driver-implementation-by-paragon.patch
+    2006-ntfs-rw-gpl-driver-implementation-by-paragon-v13.patch
     #
     # Project C (BMQ+PDS)
     #3001-projectc510-${_prjc}.patch::https://gitlab.com/alfredchen/linux-prjc/uploads/e8077274ea1c74e0c9f5bce44be51243/prjc_v5.9-r1.patch
@@ -130,7 +130,7 @@ sha256sums=('d139d4cc8eb8b27364adc774c0df0feac39389beb4357a36d628a48c92fed393'
             'acca50a9ffee480f29bd7de6e8b5963dc0d37d3103871d75bcffdb2acce6c82d'
             '5df5b9a78427d3ab031b71f0f6a5a5ebb601fa11ff51ba65b8c2c82b0f354d4b'
             'a1dce936358ba3e95eaa9b18f6b53c5d643885f88cac4e538cdb7fa31fb00011'
-            '5c6528ebb4c055fb280496b71ff5cf00d8b4948cf98d4a617a3d0f7af9ee05ba')
+            'e9a02ead13241f08463912cc0c9e0d6c7a2619b0d909c8c62d6262dcd4fb59d0')
 
 export KBUILD_BUILD_USER=$pkgbase
 export KBUILD_BUILD_HOST=eos
