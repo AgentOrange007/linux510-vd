@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=0
 _rc=rc6
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=4
+pkgrel=5
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -36,7 +36,7 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     # little inlining fix for gcc/asm
     0003-asm-force-inlining-of-get_order.patch
     # zstd 1.4.6 from terrelln
-    0004-update-to-zstd-146.patch
+    0004-update-to-zstd-146-v6.patch
     # Arch patches
     0006-arch-patches510-${_archpatch}.patch::https://raw.githubusercontent.com/sirlucjan/kernel-patches/master/5.9/arch-patches-v5/0001-ZEN-Add-sysctl-and-CONFIG-to-disallow-unprivileged-C.patch
     # CPU patches
@@ -106,7 +106,7 @@ sha256sums=('d139d4cc8eb8b27364adc774c0df0feac39389beb4357a36d628a48c92fed393'
             '8488374584d5a84b5d87c3f3102df9eac3d503e87ebe68af4e41ad86e7cc840e'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
-            '4976b4de940b27a31fd9b4655abbdc5b61120135b63a822d925ff16e097747bf'
+            '918b82ba1226edf5b7156c0039184bcec42b2d71f6cb6549d7806a558181bb3d'
             'b8e9973780dd75f630733a6e323897486d4d9f27d63ebefac48190e247767072'
             '429b41a987aa1a3b4975474d8b3ca2817a418435f4886e747140deed978ce284'
             '3d38fc4052b999b67aaed9fe9a4ba6ffd778ffbf7e94a66d5577391dbd08d12a'
