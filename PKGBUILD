@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=0
 _rc=rc6
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=5
+pkgrel=6
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -30,7 +30,7 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     #"prepatch-${_basekernel/./}-g${_stablequeue}.patch"
     #
     # sched/core patches
-    0001-sched-tip-picks-20201124.patch
+    0001-sched-tip-picks-20201203.patch
     # RAPL for AMD 17h+19h
     0002-powercap-enable-rapl-for-fam17h-and-fam19h.patch
     # little inlining fix for gcc/asm
@@ -103,7 +103,7 @@ sha256sums=('d139d4cc8eb8b27364adc774c0df0feac39389beb4357a36d628a48c92fed393'
             '07782cffdd0a324e4c67e16fa51296a8f70f362c8072e02b68acfb46840cc3e5'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
-            '8488374584d5a84b5d87c3f3102df9eac3d503e87ebe68af4e41ad86e7cc840e'
+            '2b90cce6f5880356402e0c628bb500eab8117e6c21c77d492b0a324af21de3e1'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
             '918b82ba1226edf5b7156c0039184bcec42b2d71f6cb6549d7806a558181bb3d'
