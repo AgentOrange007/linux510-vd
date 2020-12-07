@@ -1,4 +1,4 @@
-From 670901da0e3b9bcb1aad164923b6482ff3632916 Mon Sep 17 00:00:00 2001
+From fd5fbc272a57f7bd2d66bd661f03360106e930d2 Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Fri, 25 Sep 2020 16:36:45 -0700
 Subject: [PATCH] tracing: move function tracer options to Kconfig
@@ -12,6 +12,7 @@ therefore, work even if the .config was generated in a different
 environment.
 
 Signed-off-by: Sami Tolvanen <samitolvanen@google.com>
+Acked-by: Steven Rostedt (VMware) <rostedt@goodmis.org>
 Signed-off-by: torvic9 <torvic9@mailbox.org>
 ---
  Makefile               | 20 ++++++++------------
@@ -65,7 +66,7 @@ index 43ecedeb3..16b7f0890 100644
  
  # We trigger additional mismatches with less inlining
 diff --git a/kernel/trace/Kconfig b/kernel/trace/Kconfig
-index a4020c0b4..927ad0048 100644
+index e1bf5228f..616a19866 100644
 --- a/kernel/trace/Kconfig
 +++ b/kernel/trace/Kconfig
 @@ -595,6 +595,22 @@ config FTRACE_MCOUNT_RECORD
@@ -118,7 +119,7 @@ index ae647379b..2175ddb1e 100644
 -- 
 2.29.2
 
-From 911ae42d9c98de36ad44c3a9a9c0a6f519d04332 Mon Sep 17 00:00:00 2001
+From 720074a2c95093ce6a63b9c6c22cdfbfd13f062d Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Fri, 6 Mar 2020 14:14:03 -0800
 Subject: [PATCH] kbuild: add support for Clang LTO
@@ -511,7 +512,7 @@ index 6eded325c..596507573 100755
 -- 
 2.29.2
 
-From 1cb3a95c299f5cc704edc9c3a75be9abc66b9178 Mon Sep 17 00:00:00 2001
+From 508dbf8f1ec4b2ef4d35fb250705ed31fdd5c1e7 Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Fri, 6 Mar 2020 14:19:09 -0800
 Subject: [PATCH] kbuild: lto: fix module versioning
@@ -734,7 +735,7 @@ index 596507573..78e55fe72 100755
 -- 
 2.29.2
 
-From b87bb400048dbb34f0093a0329b7a4e1c573670e Mon Sep 17 00:00:00 2001
+From 11ff38142c89b5f567ffdd44ce7bc219dd4ed837 Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Wed, 4 Dec 2019 15:57:39 -0800
 Subject: [PATCH] kbuild: lto: limit inlining
@@ -773,7 +774,7 @@ index 222ae96d1..ac836907d 100644
 -- 
 2.29.2
 
-From 83c14d2e658098157dfd54e41c3dcb75159e431e Mon Sep 17 00:00:00 2001
+From 31374f2d91256e8e14a5553005bdb3ec198a0708 Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Tue, 3 Dec 2019 15:56:24 -0800
 Subject: [PATCH] kbuild: lto: merge module sections
@@ -828,46 +829,7 @@ index 69b9b71a6..18d5b8423 100644
 -- 
 2.29.2
 
-From 8d4b9cec7c2b2018d015c206fee3fd1fce921477 Mon Sep 17 00:00:00 2001
-From: Sami Tolvanen <samitolvanen@google.com>
-Date: Wed, 5 Feb 2020 06:09:07 -0800
-Subject: [PATCH] kbuild: lto: remove duplicate dependencies from .mod files
-
-With LTO, llvm-nm prints out symbols for each archive member
-separately, which results in a lot of duplicate dependencies in the
-.mod file when CONFIG_TRIM_UNUSED_SYMS is enabled. When a module
-consists of several compilation units, the output can exceed the
-default xargs command size limit and split the dependency list to
-multiple lines, which results in used symbols getting trimmed.
-
-This change removes duplicate dependencies, which will reduce the
-probability of this happening and makes .mod files smaller and
-easier to read.
-
-Signed-off-by: Sami Tolvanen <samitolvanen@google.com>
-Reviewed-by: Kees Cook <keescook@chromium.org>
-Signed-off-by: torvic9 <torvic9@mailbox.org>
----
- scripts/Makefile.build | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
-
-diff --git a/scripts/Makefile.build b/scripts/Makefile.build
-index eae2f5386..f80ada582 100644
---- a/scripts/Makefile.build
-+++ b/scripts/Makefile.build
-@@ -281,7 +281,7 @@ endef
- 
- # List module undefined symbols (or empty line if not enabled)
- ifdef CONFIG_TRIM_UNUSED_KSYMS
--cmd_undef_syms = $(NM) $< | sed -n 's/^  *U //p' | xargs echo
-+cmd_undef_syms = $(NM) $< | sed -n 's/^  *U //p' | sort -u | xargs echo
- else
- cmd_undef_syms = echo
- endif
--- 
-2.29.2
-
-From c2da9f80de624c046f3fdbb9c23f78a5d4dac3d4 Mon Sep 17 00:00:00 2001
+From acdcdef69b662da532a6a3fb9f9832df4b1ba7ed Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Fri, 8 Dec 2017 15:49:24 -0800
 Subject: [PATCH] init: lto: ensure initcall ordering
@@ -1313,7 +1275,7 @@ index 78e55fe72..c5919d5a0 100755
 -- 
 2.29.2
 
-From c06274d40ba86fac5d5e2bdf211210881143156b Mon Sep 17 00:00:00 2001
+From a3b2ce2685008aa72a9924846163cf83bad22466 Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Sun, 22 Mar 2020 17:01:40 -0700
 Subject: [PATCH] init: lto: fix PREL32 relocations
@@ -1392,7 +1354,7 @@ index d466bea7e..27b9478dc 100644
 -- 
 2.29.2
 
-From bd7ee1cd999d3faa56ec62b1a1c9e011411f73f4 Mon Sep 17 00:00:00 2001
+From c995f04a1f5bee19215a338cd8301b9ab5f8983b Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Thu, 19 Mar 2020 17:09:17 -0700
 Subject: [PATCH] PCI: Fix PREL32 relocations for LTO
@@ -1453,7 +1415,7 @@ index 22207a797..5b8505a5c 100644
 -- 
 2.29.2
 
-From 1dee0b76abb21187fac810c6bb9b9dcd26a937fe Mon Sep 17 00:00:00 2001
+From 5130731a8f4a5ac17dd2bee464b060a88c382498 Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Fri, 6 Mar 2020 13:52:03 -0800
 Subject: [PATCH] modpost: lto: strip .lto from module names
@@ -1571,7 +1533,7 @@ index d587f40f1..760e6baa7 100644
 -- 
 2.29.2
 
-From 81206fcfa20a4d5333a5a033cce34d22f483ae8a Mon Sep 17 00:00:00 2001
+From b162ee72a187b3b0fc76c2b2dbe4a79dad942e0f Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Mon, 10 Apr 2017 12:32:24 -0700
 Subject: [PATCH] scripts/mod: disable LTO for empty.c
@@ -1601,7 +1563,7 @@ index 78071681d..c9e38ad93 100644
 -- 
 2.29.2
 
-From 07b230bdc4a1899c8acdb5d588ab62f1e51280a0 Mon Sep 17 00:00:00 2001
+From 893d7125a6240eb91273afad23f8de2362db6957 Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Mon, 1 May 2017 11:08:05 -0700
 Subject: [PATCH] efi/libstub: disable LTO
@@ -1633,7 +1595,7 @@ index 8a94388e3..c23466e05 100644
 -- 
 2.29.2
 
-From 70f0178e6a0fe791a472bd4d2deda32b347d96ee Mon Sep 17 00:00:00 2001
+From a1c3415755d63e3efe5ec63b8cda871ed26bbb8d Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Tue, 5 Dec 2017 12:54:13 -0800
 Subject: [PATCH] drivers/misc/lkdtm: disable LTO for rodata.o
@@ -1663,7 +1625,7 @@ index c70b38220..dd4c936d4 100644
 -- 
 2.29.2
 
-From 88a62b49a00010987fca1e9dc4f8580b2822dff0 Mon Sep 17 00:00:00 2001
+From d09de2e758d8e2e602f91c385db9f84c3ba4c813 Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Tue, 19 Dec 2017 08:55:23 -0800
 Subject: [PATCH] arm64: vdso: disable LTO
@@ -1696,7 +1658,7 @@ index d65f52264..50fe49fb4 100644
 -- 
 2.29.2
 
-From 6fa6c016728c4e145990a086f62871c57df8eb44 Mon Sep 17 00:00:00 2001
+From 85f5df8d0eb036c9f7f47b626fc4bfbf0069cfa8 Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Fri, 25 Sep 2020 12:28:13 -0700
 Subject: [PATCH] arm64: disable recordmcount with DYNAMIC_FTRACE_WITH_REGS
@@ -1735,7 +1697,7 @@ index 1515f6f15..c7f07978f 100644
 -- 
 2.29.2
 
-From 08b43cdd07dbe537cbd02d2c8e778087ea110cbe Mon Sep 17 00:00:00 2001
+From 5e4d9166467680059b5d7856ada2cd5eba2d9f78 Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Thu, 2 Nov 2017 09:34:42 -0700
 Subject: [PATCH] arm64: allow LTO to be selected
@@ -1766,7 +1728,7 @@ index c7f07978f..9d29c48ec 100644
 -- 
 2.29.2
 
-From 70da5ee1692a1554cec59e78123787a4941ffc56 Mon Sep 17 00:00:00 2001
+From 53fbd3dedc27c523c0519403044ab49863257b79 Mon Sep 17 00:00:00 2001
 From: Peter Zijlstra <peterz@infradead.org>
 Date: Thu, 6 Aug 2020 15:14:09 -0700
 Subject: [PATCH] objtool: Add a pass for generating __mcount_loc
@@ -1972,7 +1934,7 @@ index 4125d4578..cf004dd60 100644
 -- 
 2.29.2
 
-From 4b81daf961ca24a1dad82a1737e008473027c91e Mon Sep 17 00:00:00 2001
+From 7bc729afb4a0995101d4db81c19f13d41a61138c Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Wed, 28 Oct 2020 10:16:26 -0700
 Subject: [PATCH] objtool: Fix __mcount_loc generation with Clang's assembler
@@ -2022,7 +1984,7 @@ index c39c4d2b4..71b64757e 100644
 -- 
 2.29.2
 
-From 64a4356125fe7b68eead3ac2b203b88c4db2e2e0 Mon Sep 17 00:00:00 2001
+From af294fb2e2cbead0c3520a26db79aa88e1e5093a Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Fri, 17 Jul 2020 12:04:27 -0700
 Subject: [PATCH] objtool: Don't autodetect vmlinux.o
@@ -2080,7 +2042,7 @@ index e92e76f69..facfc10bc 100644
 -- 
 2.29.2
 
-From 1ccf85a43e273a125f31d650af8293e840a0d9fe Mon Sep 17 00:00:00 2001
+From 756dc3432438b09838f5a99860afa37b310f9606 Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Fri, 25 Sep 2020 16:43:53 -0700
 Subject: [PATCH] tracing: add support for objtool mcount
@@ -2130,7 +2092,7 @@ index ac836907d..322f89582 100644
  endif
  
 diff --git a/kernel/trace/Kconfig b/kernel/trace/Kconfig
-index 927ad0048..89263210a 100644
+index 616a19866..9b8c849e1 100644
 --- a/kernel/trace/Kconfig
 +++ b/kernel/trace/Kconfig
 @@ -51,6 +51,11 @@ config HAVE_NOP_MCOUNT
@@ -2165,7 +2127,7 @@ index 927ad0048..89263210a 100644
  
  config TRACING_MAP
 diff --git a/scripts/Makefile.build b/scripts/Makefile.build
-index f80ada582..d2e599078 100644
+index eae2f5386..e08e66413 100644
 --- a/scripts/Makefile.build
 +++ b/scripts/Makefile.build
 @@ -238,6 +238,9 @@ endif
@@ -2181,7 +2143,7 @@ index f80ada582..d2e599078 100644
 -- 
 2.29.2
 
-From 66d2bdb26a5b1a0568a917e8f447ff8c4b073d03 Mon Sep 17 00:00:00 2001
+From a534f3d7209485d136b9acb5587001e7bbcdd4a9 Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Thu, 6 Aug 2020 15:15:02 -0700
 Subject: [PATCH] x86, build: use objtool mcount
@@ -2212,7 +2174,7 @@ index f6946b81f..9a69fcc69 100644
 -- 
 2.29.2
 
-From e5683be70958bbb55832fe0564125a2fe6357202 Mon Sep 17 00:00:00 2001
+From 5794ba89df6fd07fb99de0e73e7d319aad176418 Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Wed, 30 Sep 2020 14:36:59 -0700
 Subject: [PATCH] objtool: Split noinstr validation from --vmlinux
@@ -2294,7 +2256,7 @@ index 71b64757e..ec9ed9b98 100644
 -- 
 2.29.2
 
-From 4cfb5e2440121a8ea3d29fe935e1ef37e7ba17ee Mon Sep 17 00:00:00 2001
+From 5e5379a1ca4b5c8970a2a44666dca8330d4afbe4 Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Mon, 13 Apr 2020 16:10:13 -0700
 Subject: [PATCH] kbuild: lto: postpone objtool
@@ -2320,7 +2282,7 @@ Signed-off-by: torvic9 <torvic9@mailbox.org>
  4 files changed, 55 insertions(+), 26 deletions(-)
 
 diff --git a/scripts/Makefile.build b/scripts/Makefile.build
-index d2e599078..96d6c9e18 100644
+index e08e66413..ab0ddf488 100644
 --- a/scripts/Makefile.build
 +++ b/scripts/Makefile.build
 @@ -218,30 +218,11 @@ cmd_record_mcount = $(if $(findstring $(strip $(CC_FLAGS_FTRACE)),$(_c_flags)),
@@ -2480,7 +2442,7 @@ index 18aed761f..3b261b0f7 100755
 -- 
 2.29.2
 
-From 742dedfe5a703cab818c64eb46f55b44775a8a5a Mon Sep 17 00:00:00 2001
+From 5a2c6edb30a865317cf3e381bdd1672df5352572 Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Tue, 16 Apr 2019 14:40:00 -0700
 Subject: [PATCH] x86, vdso: disable LTO only for vDSO
@@ -2520,7 +2482,7 @@ index 212437479..b36f42965 100644
 -- 
 2.29.2
 
-From 30012fb591cbd224ea22243b4b89a472b045aba6 Mon Sep 17 00:00:00 2001
+From 3c92d01566c02adbed49b4a9cd7df8752a093a0c Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Wed, 16 Sep 2020 12:57:56 -0700
 Subject: [PATCH] x86, cpu: disable LTO for cpu.c
@@ -2555,7 +2517,7 @@ index 6907b523e..5f711a441 100644
 -- 
 2.29.2
 
-From 74753d14efafae4a4b3793ec47a3ed151342e7a0 Mon Sep 17 00:00:00 2001
+From 39c19542a337a34455cc81c63a49d7d039d58635 Mon Sep 17 00:00:00 2001
 From: Sami Tolvanen <samitolvanen@google.com>
 Date: Wed, 10 Apr 2019 14:17:20 -0700
 Subject: [PATCH] x86, build: allow LTO to be selected

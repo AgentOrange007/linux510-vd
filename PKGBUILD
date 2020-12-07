@@ -9,9 +9,9 @@ pkgname=('linux510-vd' 'linux510-vd-headers')
 _basekernel=5.10
 _kernelname=-vd
 _sub=0
-_rc=rc6
+_rc=rc7
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=6
+pkgrel=1
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -61,8 +61,6 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     0017-drm-amdgpu-disable-gfxoff-if-vcn-busy.patch
     # cpuidle polling patch
     0018-cpuidle-select-polling-interval-based-on-cstate-with-a-longer-target-residency.patch
-    # resctrl fix for amd
-    0019-x86-resctrl-fix-amd-l3-qos-cdp.patch
     #
     # futex_wait_multiple
     1001-futex-futex_wait_multiple-krisman.patch
@@ -97,7 +95,7 @@ validpgpkeys=(
   '647F28654894E3BD457199BE38DBBDC86092693E'  # Greg Kroah-Hartman
 )
 
-sha256sums=('d139d4cc8eb8b27364adc774c0df0feac39389beb4357a36d628a48c92fed393'
+sha256sums=('9f95194fc84eef01789f2ed6566518ef597e9c6541b640f7276f2a3ef1a221f2'
             '7dbe0995b0a2fbdaae14e631afd34f5aca6f1758672d2a7c8b204d9fc8621ee7'
             'e9276f5cadf69f23d6576c3b284eed5dd6ad061cb68c1e80f3bab51b1526da3c'
             '07782cffdd0a324e4c67e16fa51296a8f70f362c8072e02b68acfb46840cc3e5'
@@ -121,7 +119,6 @@ sha256sums=('d139d4cc8eb8b27364adc774c0df0feac39389beb4357a36d628a48c92fed393'
             '5000348583882523ef3c36df27eabf4355e83d0605081a3bf5d4aaa28e518162'
             '53d63d9ac1250893921c45931f4e9ab9584e24ae8e72f4eca2f78d2faf59713a'
             '052b51392dc7f1c24fc354d5a21d87a78489a1999850a14b543502ed2009b653'
-            '1ece5352ec69a10ff477073bf66bbb0efe5e59e12715b6f79a56c5cd2c7ed7e5'
             'b86758554105a11900e60b1f83bd272aee8ce3af5c62a382160637844ee4f2a5'
             '95bcb856f9b8b787703ea39b484661ef31341f0e218d863f8450975c29796516'
             'b41115f256a5d41a06897b9544660a6a02977642e68a985e0ad32b764944c82d'
@@ -149,9 +146,8 @@ _clang=0
 if [[ ${_clang} -eq 1 ]]; then
 	LLVMOPTS="LLVM=1 LLVM_IAS=0"
 	CLANGOPTS="CC=clang LD=ld.lld"
-	source+=('clang-ias-dwarf-fixes.patch' 'clang-lto-20201130.patch')
-	sha256sums+=('254401bc81c5c865f71c8195fb47f7db1b44227a2597f30ec3e83dd006f402fc'
-		'2c3bbf2cfbdacb0dae9ef753a8bfd8566490b1f6ca8723f7c5c9b75b922f6190')
+	source+=('clang-lto-20201203.patch')
+	sha256sums+=('f23222fae4714e4926b21680d705fcd6c5c0932a907cb4363de46ca33326ce6d')
 else
 	LLVMOPTS=""
 	CLANGOPTS=""
