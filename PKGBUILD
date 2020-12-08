@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=0
 _rc=rc7
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=1
+pkgrel=2
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -144,10 +144,10 @@ _pubkey="$HOME/build/keys/vd510-kernel-pubkey.pem"
 _clang=0
 
 if [[ ${_clang} -eq 1 ]]; then
-	LLVMOPTS="LLVM=1 LLVM_IAS=0"
+	LLVMOPTS="LLVM=1 LLVM_IAS=1"
 	CLANGOPTS="CC=clang LD=ld.lld"
-	source+=('clang-lto-20201203.patch')
-	sha256sums+=('f23222fae4714e4926b21680d705fcd6c5c0932a907cb4363de46ca33326ce6d')
+	source+=('clang-lto-20201208.patch')
+	sha256sums+=('caff6a6d9bfe19a566e9105ba0b76d5746877e3b49ffb30abe667f470a579f80')
 else
 	LLVMOPTS=""
 	CLANGOPTS=""
