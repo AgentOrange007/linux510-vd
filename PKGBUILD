@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=0
 _rc=rc7
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=2
+pkgrel=3
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -61,6 +61,8 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     0017-drm-amdgpu-disable-gfxoff-if-vcn-busy.patch
     # cpuidle polling patch
     0018-cpuidle-select-polling-interval-based-on-cstate-with-a-longer-target-residency.patch
+    # sched: select idle cpu from cpumask
+    0019-sched-fair-select-idle-cpu-from-idle-cpumask-for-task-wakeup-v7.patch
     #
     # futex_wait_multiple
     1001-futex-futex_wait_multiple-krisman.patch
@@ -77,7 +79,7 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     2004-tune-cpufreq-ondemand-settings.patch
     2005-optimise-kernel-and-module-compression.patch
     # ntfs3 driver
-    2006-ntfs-rw-gpl-driver-implementation-by-paragon-v13.patch
+    2006-ntfs-rw-gpl-driver-implementation-by-paragon-v14.patch
     #
     # Project C (BMQ+PDS)
     #3001-projectc510-${_prjc}.patch::https://gitlab.com/alfredchen/linux-prjc/uploads/e8077274ea1c74e0c9f5bce44be51243/prjc_v5.9-r1.patch
@@ -119,6 +121,7 @@ sha256sums=('9f95194fc84eef01789f2ed6566518ef597e9c6541b640f7276f2a3ef1a221f2'
             '5000348583882523ef3c36df27eabf4355e83d0605081a3bf5d4aaa28e518162'
             '53d63d9ac1250893921c45931f4e9ab9584e24ae8e72f4eca2f78d2faf59713a'
             '052b51392dc7f1c24fc354d5a21d87a78489a1999850a14b543502ed2009b653'
+            '38cc1e32ad7def316a4da8410642bfbd1b727be325f558d533af9512a922d784'
             'b86758554105a11900e60b1f83bd272aee8ce3af5c62a382160637844ee4f2a5'
             '95bcb856f9b8b787703ea39b484661ef31341f0e218d863f8450975c29796516'
             'b41115f256a5d41a06897b9544660a6a02977642e68a985e0ad32b764944c82d'
@@ -127,7 +130,7 @@ sha256sums=('9f95194fc84eef01789f2ed6566518ef597e9c6541b640f7276f2a3ef1a221f2'
             'acca50a9ffee480f29bd7de6e8b5963dc0d37d3103871d75bcffdb2acce6c82d'
             '5df5b9a78427d3ab031b71f0f6a5a5ebb601fa11ff51ba65b8c2c82b0f354d4b'
             'a1dce936358ba3e95eaa9b18f6b53c5d643885f88cac4e538cdb7fa31fb00011'
-            'e9a02ead13241f08463912cc0c9e0d6c7a2619b0d909c8c62d6262dcd4fb59d0')
+            '9390f913c48aee12a92cec7690efc8de1a02d66fe0cd8cee0178ab1f115236d0')
 
 export KBUILD_BUILD_USER=$pkgbase
 export KBUILD_BUILD_HOST=eos
