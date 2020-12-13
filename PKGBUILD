@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=0
 _rc=rc7
 pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=3
+pkgrel=4
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -38,7 +38,7 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     # zstd 1.4.6 from terrelln
     0004-update-to-zstd-146-v7.patch
     # timers/core updates
-    0005-timers-core-20201119.patch
+    0005-timers-core-20201211.patch
     # Arch patches
     0006-arch-patches510-${_archpatch}.patch::https://raw.githubusercontent.com/sirlucjan/kernel-patches/master/5.9/arch-patches-v5/0001-ZEN-Add-sysctl-and-CONFIG-to-disallow-unprivileged-C.patch
     # CPU patches
@@ -85,9 +85,6 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     #3001-projectc510-${_prjc}.patch::https://gitlab.com/alfredchen/linux-prjc/uploads/e8077274ea1c74e0c9f5bce44be51243/prjc_v5.9-r1.patch
     #3002-projectc510-${_prjc}.patch::https://gitlab.com/alfredchen/linux-prjc/-/commit/c6e352a26de8e46f5737fed2b876516df82adad1.patch
     #
-    # Cachy scheduler
-    #3001-cachy-5.9-${_cachy}.patch::https://raw.githubusercontent.com/hamadmarri/cachy-sched/master/patches/v5.9/cachy-5.9-${_cachy}.patch
-    #
     # i10 i/o scheduler
     #4001-i10-io-sched.patch::https://raw.githubusercontent.com/i10-kernel/upstream-linux/master/0001-iosched-Add-i10-I-O-Scheduler.patch
 )
@@ -107,7 +104,7 @@ sha256sums=('9f95194fc84eef01789f2ed6566518ef597e9c6541b640f7276f2a3ef1a221f2'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
             'e784b4613dd8fcb8c065fe36df5f78f9bc7174c5b923b2384da031e79ee6ba7c'
-            '5e91ab2f9143d9d0c2ce5c72395a71015c65bfa0153a57af54428b8a81290848'
+            '9323dc442ede2b5824955b4d958f887a3b2173d45395ad4492566f370760c7af'
             'b8e9973780dd75f630733a6e323897486d4d9f27d63ebefac48190e247767072'
             '429b41a987aa1a3b4975474d8b3ca2817a418435f4886e747140deed978ce284'
             '3d38fc4052b999b67aaed9fe9a4ba6ffd778ffbf7e94a66d5577391dbd08d12a'
@@ -149,8 +146,8 @@ _clang=0
 if [[ ${_clang} -eq 1 ]]; then
 	LLVMOPTS="LLVM=1 LLVM_IAS=1"
 	CLANGOPTS="CC=clang LD=ld.lld"
-	source+=('clang-lto-20201208.patch')
-	sha256sums+=('caff6a6d9bfe19a566e9105ba0b76d5746877e3b49ffb30abe667f470a579f80')
+	source+=('clang-lto-20201211.patch')
+	sha256sums+=('906275255d28c3ebe8b5604e74a43bb7b5bc885ebc9290094aa1520c57948e22')
 else
 	LLVMOPTS=""
 	CLANGOPTS=""
