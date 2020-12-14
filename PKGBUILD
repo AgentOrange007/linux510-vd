@@ -9,9 +9,9 @@ pkgname=('linux510-vd' 'linux510-vd-headers')
 _basekernel=5.10
 _kernelname=-vd
 _sub=0
-_rc=rc7
-pkgver=${_basekernel}.${_sub}${_rc}
-pkgrel=4
+#_rc=rc7
+pkgver=${_basekernel}.${_sub}
+pkgrel=1
 _archpatch=20201109
 _prjc="r1"
 _cachy="r8"
@@ -21,8 +21,8 @@ url="http://www.kernel.org/"
 license=('GPL2')
 makedepends=('xmlto' 'docbook-xsl' 'kmod' 'inetutils' 'bc' 'elfutils' 'git' 'libelf')
 options=('!strip')
-source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
-    #https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sign}
+source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${_basekernel}.tar.{xz,sign}
+    #https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     # the main kernel config files
     'config.x86_64' 'config.x270' 'config.zen2' 'x509.genkey' "${pkgbase}.preset"
     #
@@ -65,7 +65,8 @@ source=(https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     0019-sched-fair-select-idle-cpu-from-idle-cpumask-for-task-wakeup-v7.patch
     #
     # futex_wait_multiple
-    1001-futex-futex_wait_multiple-krisman.patch
+    #1001-futex-futex_wait_multiple-krisman.patch
+    1001-futex-valve-integ-20201126.patch
     # x86/entry and core/entry with syscall user dispatcher
     1002-x86-entry-20201029.patch
     1003-core-entry-20201202.patch
@@ -94,7 +95,8 @@ validpgpkeys=(
   '647F28654894E3BD457199BE38DBBDC86092693E'  # Greg Kroah-Hartman
 )
 
-sha256sums=('9f95194fc84eef01789f2ed6566518ef597e9c6541b640f7276f2a3ef1a221f2'
+sha256sums=('dcdf99e43e98330d925016985bfbc7b83c66d367b714b2de0cbbfcbf83d8ca43'
+            'SKIP'
             '7dbe0995b0a2fbdaae14e631afd34f5aca6f1758672d2a7c8b204d9fc8621ee7'
             'e9276f5cadf69f23d6576c3b284eed5dd6ad061cb68c1e80f3bab51b1526da3c'
             '07782cffdd0a324e4c67e16fa51296a8f70f362c8072e02b68acfb46840cc3e5'
@@ -119,7 +121,7 @@ sha256sums=('9f95194fc84eef01789f2ed6566518ef597e9c6541b640f7276f2a3ef1a221f2'
             '53d63d9ac1250893921c45931f4e9ab9584e24ae8e72f4eca2f78d2faf59713a'
             '052b51392dc7f1c24fc354d5a21d87a78489a1999850a14b543502ed2009b653'
             '38cc1e32ad7def316a4da8410642bfbd1b727be325f558d533af9512a922d784'
-            'b86758554105a11900e60b1f83bd272aee8ce3af5c62a382160637844ee4f2a5'
+            '5dace545bf5047cbac01bc587ee4cf369600ee66b92d9f30f1229c00ae887ffa'
             '95bcb856f9b8b787703ea39b484661ef31341f0e218d863f8450975c29796516'
             'b41115f256a5d41a06897b9544660a6a02977642e68a985e0ad32b764944c82d'
             '7fd689f4ec88364d1ac00007e6f1e273ee9b53cae187e0f70e7f810303dc9303'
@@ -158,7 +160,7 @@ TN=$(tput sgr0)
 
 prepare() {
 
-  cd "${srcdir}/linux-${_basekernel}-${_rc}"
+  cd "${srcdir}/linux-${_basekernel}"
 
   echo "-${_kernelname/-/}" > localversion.10-pkgname
   echo "-${pkgrel}" > localversion.20-pkgrel
@@ -216,7 +218,7 @@ prepare() {
 }
 
 build() {
-  cd "${srcdir}/linux-${_basekernel}-${_rc}"
+  cd "${srcdir}/linux-${_basekernel}"
 
   # build!
   make $LLVMOPTS $MAKEFLAGS LOCALVERSION= bzImage modules
@@ -230,7 +232,7 @@ package_linux510-vd() {
   provides=(VIRTUALBOX-GUEST-MODULES)
   replaces=(linux510-vd-virtualbox-guest-modules)
 
-  cd "${srcdir}/linux-${_basekernel}-${_rc}"
+  cd "${srcdir}/linux-${_basekernel}"
 
   local kernver="$(<version)"
   local modulesdir="$pkgdir/usr/lib/modules/$kernver"
@@ -267,7 +269,7 @@ package_linux510-vd() {
 package_linux510-vd-headers() {
   pkgdesc="Header files and scripts for building modules for ${pkgbase/linux/Linux} vd kernel"
 
-  cd "${srcdir}/linux-${_basekernel}-${_rc}"
+  cd "${srcdir}/linux-${_basekernel}"
   local kernver="$(<version)"
   local _builddir="${pkgdir}/usr/lib/modules/${kernver}/build"
 
