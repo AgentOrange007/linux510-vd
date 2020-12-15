@@ -61,11 +61,11 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     # cpuidle polling patch
     0018-cpuidle-select-polling-interval-based-on-cstate-with-a-longer-target-residency.patch
     # sched: select idle cpu from cpumask
-    #0019-sched-fair-select-idle-cpu-from-idle-cpumask-for-task-wakeup-v8+.patch
+    0019-sched-fair-select-idle-cpu-from-idle-cpumask-for-task-wakeup-v8+.patch
     # cpufreq
-    #0020-cpufreq-allow-drivers-to-receive-more-info-from-the-governor.patch
+    0020-cpufreq-allow-drivers-to-receive-more-info-from-the-governor.patch
     # little clang/objtool fix
-    #0021-objtool-fix-segfault-with-clang-non-section-symbols.patch
+    0021-objtool-fix-segfault-with-clang-non-section-symbols.patch
     #
     # futex_wait_multiple
     #1001-futex-futex_wait_multiple-krisman.patch
@@ -87,8 +87,9 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     # btrfs backports from hho+vd
     2007-btrfs-patches-hho+vd.patch
     #
-    # Project C (BMQ+PDS)
-    #3001-projectc510-${_prjc}.patch
+    # Project C (BMQ+PDS) - disabled because it does not work together with tip:sched/core
+    #3001-projectc510-${_prjc}.patch - with context fixes for tip:sched/core
+    #prjc_v5.10-r0.patch - original with mini fix
     #
     # i10 i/o scheduler
     #4001-i10-io-sched.patch::https://raw.githubusercontent.com/i10-kernel/upstream-linux/master/0001-iosched-Add-i10-I-O-Scheduler.patch
@@ -124,6 +125,9 @@ sha256sums=('ed1661128c9bd3e8c9f55e345f715b90fefcf6b127c77e0286773242e7a14e5c'
             '5000348583882523ef3c36df27eabf4355e83d0605081a3bf5d4aaa28e518162'
             '53d63d9ac1250893921c45931f4e9ab9584e24ae8e72f4eca2f78d2faf59713a'
             '052b51392dc7f1c24fc354d5a21d87a78489a1999850a14b543502ed2009b653'
+            '0325003334af1f761908734a282f686bf13456003c60250eee644684afb068d0'
+            '068f700ef4e96ca931d56951b23ece9446e7313d7efa35df769ffa8579035d2f'
+            'fa87fc20c0183e14ff06e03a558ef5315c2f65c8dee4bab1118ade80282ba399'
             '5dace545bf5047cbac01bc587ee4cf369600ee66b92d9f30f1229c00ae887ffa'
             '95bcb856f9b8b787703ea39b484661ef31341f0e218d863f8450975c29796516'
             'b41115f256a5d41a06897b9544660a6a02977642e68a985e0ad32b764944c82d'
