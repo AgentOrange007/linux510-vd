@@ -8,20 +8,19 @@ pkgbase=linux510-vd
 pkgname=('linux510-vd' 'linux510-vd-headers')
 _basekernel=5.10
 _kernelname=-vd
-_sub=0
+_sub=1
 #_rc=rc7
 pkgver=${_basekernel}.${_sub}
 pkgrel=1
 _archpatch=20201109
-_prjc="r1"
-_cachy="r8"
+_prjc="r0"
 _stablequeue=d9b497915
 arch=('x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
 makedepends=('xmlto' 'docbook-xsl' 'kmod' 'inetutils' 'bc' 'elfutils' 'git' 'libelf')
 options=('!strip')
-source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${_basekernel}.tar.{xz,sign}
+source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sign}
     #https://git.kernel.org/torvalds/t/linux-${_basekernel}-${_rc}.tar.gz
     # the main kernel config files
     'config.x86_64' 'config.x270' 'config.zen2' 'x509.genkey' "${pkgbase}.preset"
@@ -62,7 +61,11 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${_basekernel}.tar.{x
     # cpuidle polling patch
     0018-cpuidle-select-polling-interval-based-on-cstate-with-a-longer-target-residency.patch
     # sched: select idle cpu from cpumask
-    0019-sched-fair-select-idle-cpu-from-idle-cpumask-for-task-wakeup-v7.patch
+    #0019-sched-fair-select-idle-cpu-from-idle-cpumask-for-task-wakeup-v8+.patch
+    # cpufreq
+    #0020-cpufreq-allow-drivers-to-receive-more-info-from-the-governor.patch
+    # little clang/objtool fix
+    #0021-objtool-fix-segfault-with-clang-non-section-symbols.patch
     #
     # futex_wait_multiple
     #1001-futex-futex_wait_multiple-krisman.patch
@@ -81,10 +84,11 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${_basekernel}.tar.{x
     2005-optimise-kernel-and-module-compression.patch
     # ntfs3 driver
     2006-ntfs-rw-gpl-driver-implementation-by-paragon-v14.patch
+    # btrfs backports from hho+vd
+    2007-btrfs-patches-hho+vd.patch
     #
     # Project C (BMQ+PDS)
-    #3001-projectc510-${_prjc}.patch::https://gitlab.com/alfredchen/linux-prjc/uploads/e8077274ea1c74e0c9f5bce44be51243/prjc_v5.9-r1.patch
-    #3002-projectc510-${_prjc}.patch::https://gitlab.com/alfredchen/linux-prjc/-/commit/c6e352a26de8e46f5737fed2b876516df82adad1.patch
+    #3001-projectc510-${_prjc}.patch
     #
     # i10 i/o scheduler
     #4001-i10-io-sched.patch::https://raw.githubusercontent.com/i10-kernel/upstream-linux/master/0001-iosched-Add-i10-I-O-Scheduler.patch
@@ -95,7 +99,7 @@ validpgpkeys=(
   '647F28654894E3BD457199BE38DBBDC86092693E'  # Greg Kroah-Hartman
 )
 
-sha256sums=('dcdf99e43e98330d925016985bfbc7b83c66d367b714b2de0cbbfcbf83d8ca43'
+sha256sums=('ed1661128c9bd3e8c9f55e345f715b90fefcf6b127c77e0286773242e7a14e5c'
             'SKIP'
             '684940af20ca99513885ce778e4ffb2bae79afdbbd05a289af82c0a617958723'
             '6de671e2d3aa86a82981cd015a448e959329d3c64c8f3850a4a98d814a66a03a'
@@ -120,7 +124,6 @@ sha256sums=('dcdf99e43e98330d925016985bfbc7b83c66d367b714b2de0cbbfcbf83d8ca43'
             '5000348583882523ef3c36df27eabf4355e83d0605081a3bf5d4aaa28e518162'
             '53d63d9ac1250893921c45931f4e9ab9584e24ae8e72f4eca2f78d2faf59713a'
             '052b51392dc7f1c24fc354d5a21d87a78489a1999850a14b543502ed2009b653'
-            '38cc1e32ad7def316a4da8410642bfbd1b727be325f558d533af9512a922d784'
             '5dace545bf5047cbac01bc587ee4cf369600ee66b92d9f30f1229c00ae887ffa'
             '95bcb856f9b8b787703ea39b484661ef31341f0e218d863f8450975c29796516'
             'b41115f256a5d41a06897b9544660a6a02977642e68a985e0ad32b764944c82d'
@@ -129,7 +132,8 @@ sha256sums=('dcdf99e43e98330d925016985bfbc7b83c66d367b714b2de0cbbfcbf83d8ca43'
             'acca50a9ffee480f29bd7de6e8b5963dc0d37d3103871d75bcffdb2acce6c82d'
             '5df5b9a78427d3ab031b71f0f6a5a5ebb601fa11ff51ba65b8c2c82b0f354d4b'
             'a1dce936358ba3e95eaa9b18f6b53c5d643885f88cac4e538cdb7fa31fb00011'
-            '9390f913c48aee12a92cec7690efc8de1a02d66fe0cd8cee0178ab1f115236d0')
+            '9390f913c48aee12a92cec7690efc8de1a02d66fe0cd8cee0178ab1f115236d0'
+            '32d020e25927a8f46352ace3002ee43d1943d64c48ac9a58b09b939c26da35ca')
 
 export KBUILD_BUILD_USER=$pkgbase
 export KBUILD_BUILD_HOST=eos
@@ -160,7 +164,7 @@ TN=$(tput sgr0)
 
 prepare() {
 
-  cd "${srcdir}/linux-${_basekernel}"
+  cd "${srcdir}/linux-${pkgver}"
 
   echo "-${_kernelname/-/}" > localversion.10-pkgname
   echo "-${pkgrel}" > localversion.20-pkgrel
@@ -218,7 +222,7 @@ prepare() {
 }
 
 build() {
-  cd "${srcdir}/linux-${_basekernel}"
+  cd "${srcdir}/linux-${pkgver}"
 
   # build!
   make $LLVMOPTS $MAKEFLAGS LOCALVERSION= bzImage modules
@@ -232,7 +236,7 @@ package_linux510-vd() {
   provides=(VIRTUALBOX-GUEST-MODULES)
   replaces=(linux510-vd-virtualbox-guest-modules)
 
-  cd "${srcdir}/linux-${_basekernel}"
+  cd "${srcdir}/linux-${pkgver}"
 
   local kernver="$(<version)"
   local modulesdir="$pkgdir/usr/lib/modules/$kernver"
@@ -269,7 +273,7 @@ package_linux510-vd() {
 package_linux510-vd-headers() {
   pkgdesc="Header files and scripts for building modules for ${pkgbase/linux/Linux} vd kernel"
 
-  cd "${srcdir}/linux-${_basekernel}"
+  cd "${srcdir}/linux-${pkgver}"
   local kernver="$(<version)"
   local _builddir="${pkgdir}/usr/lib/modules/${kernver}/build"
 
