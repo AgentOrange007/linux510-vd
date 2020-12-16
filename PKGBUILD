@@ -14,7 +14,7 @@ pkgver=${_basekernel}.${_sub}
 pkgrel=2
 _archpatch=20201109
 _prjc="r0"
-_stablequeue=d9b497915
+_stablequeue=d5e269f576
 arch=('x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
@@ -26,10 +26,10 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     'config.x86_64' 'config.x270' 'config.zen2' 'x509.genkey' "${pkgbase}.preset"
     #
     # Prepatch from stable-queue
-    #"prepatch-${_basekernel/./}-g${_stablequeue}.patch"
+    "prepatch-${_basekernel/./}-g${_stablequeue}.patch"
     #
     # sched/core patches
-    0001-sched-tip-picks-20201216.patch # use this with ProjectC 
+    0001-sched-tip-picks-20201216.patch # use this with ProjectC
     # 0001-sched-tip-picks-20201203.patch # use this without ProjectC
     # RAPL for AMD 17h+19h
     0002-powercap-enable-rapl-for-fam17h-and-fam19h.patch
@@ -109,7 +109,8 @@ sha256sums=('ed1661128c9bd3e8c9f55e345f715b90fefcf6b127c77e0286773242e7a14e5c'
             '52956b39cba6ac7256218223757393deb2a34fe36627174c36c5315c9f939bef'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
-            '50ff385aaffda776316a1f5db22836920cbb9abfb809e6721d1fd4e3a4b0e075'
+            'cfd68ceb33a35766810e7812eb162a37d0ef56697c658c7f124c54288fef6533'
+            '4b4c728c265c7697acf015b5448963ed070b97122170a89083789f29c25d8c09'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
             'e784b4613dd8fcb8c065fe36df5f78f9bc7174c5b923b2384da031e79ee6ba7c'
