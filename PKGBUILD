@@ -89,9 +89,8 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     # btrfs backports from hho+vd
     2007-btrfs-patches-hho+vd.patch
     #
-    # Project C (BMQ+PDS) - disabled because it does not work together with tip:sched/core
+    # Project C (BMQ+PDS)
     3001-projectc510-${_prjc}.patch # with context fixes for tip:sched/core
-    #prjc_v5.10-r0.patch - original with mini fix
     #
     # i10 i/o scheduler
     #4001-i10-io-sched.patch::https://raw.githubusercontent.com/i10-kernel/upstream-linux/master/0001-iosched-Add-i10-I-O-Scheduler.patch
