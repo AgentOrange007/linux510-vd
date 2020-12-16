@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=1
 #_rc=rc7
 pkgver=${_basekernel}.${_sub}
-pkgrel=1
+pkgrel=2
 _archpatch=20201109
 _prjc="r0"
 _stablequeue=d9b497915
@@ -29,7 +29,8 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     #"prepatch-${_basekernel/./}-g${_stablequeue}.patch"
     #
     # sched/core patches
-    0001-sched-tip-picks-20201203.patch
+    0001-sched-tip-picks-20201216.patch # use this with ProjectC 
+    # 0001-sched-tip-picks-20201203.patch # use this without ProjectC
     # RAPL for AMD 17h+19h
     0002-powercap-enable-rapl-for-fam17h-and-fam19h.patch
     # little inlining fix for gcc/asm
@@ -60,8 +61,8 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     0017-drm-amdgpu-disable-gfxoff-if-vcn-busy.patch
     # cpuidle polling patch
     0018-cpuidle-select-polling-interval-based-on-cstate-with-a-longer-target-residency.patch
-    # sched: select idle cpu from cpumask
-    0019-sched-fair-select-idle-cpu-from-idle-cpumask-for-task-wakeup-v8+.patch
+    # sched: select idle cpu from cpumask, use this patch without ProjectC
+    # 0019-sched-fair-select-idle-cpu-from-idle-cpumask-for-task-wakeup-v8+.patch
     # cpufreq
     0020-cpufreq-allow-drivers-to-receive-more-info-from-the-governor.patch
     # little clang/objtool fix
@@ -70,9 +71,10 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     # futex_wait_multiple
     #1001-futex-futex_wait_multiple-krisman.patch
     1001-futex-valve-integ-20201126.patch
+    1002-futex2-stable.patch
     # x86/entry and core/entry with syscall user dispatcher
-    1002-x86-entry-20201029.patch
-    1003-core-entry-20201202.patch
+    1003-x86-entry-20201029.patch
+    1004-core-entry-20201202.patch
     #
     # MANJARO Patches
     #
@@ -88,7 +90,7 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     2007-btrfs-patches-hho+vd.patch
     #
     # Project C (BMQ+PDS) - disabled because it does not work together with tip:sched/core
-    #3001-projectc510-${_prjc}.patch - with context fixes for tip:sched/core
+    3001-projectc510-${_prjc}.patch # with context fixes for tip:sched/core
     #prjc_v5.10-r0.patch - original with mini fix
     #
     # i10 i/o scheduler
@@ -107,7 +109,7 @@ sha256sums=('ed1661128c9bd3e8c9f55e345f715b90fefcf6b127c77e0286773242e7a14e5c'
             '52956b39cba6ac7256218223757393deb2a34fe36627174c36c5315c9f939bef'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
-            '2b90cce6f5880356402e0c628bb500eab8117e6c21c77d492b0a324af21de3e1'
+            '50ff385aaffda776316a1f5db22836920cbb9abfb809e6721d1fd4e3a4b0e075'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
             'e784b4613dd8fcb8c065fe36df5f78f9bc7174c5b923b2384da031e79ee6ba7c'
@@ -125,10 +127,10 @@ sha256sums=('ed1661128c9bd3e8c9f55e345f715b90fefcf6b127c77e0286773242e7a14e5c'
             '5000348583882523ef3c36df27eabf4355e83d0605081a3bf5d4aaa28e518162'
             '53d63d9ac1250893921c45931f4e9ab9584e24ae8e72f4eca2f78d2faf59713a'
             '052b51392dc7f1c24fc354d5a21d87a78489a1999850a14b543502ed2009b653'
-            '0325003334af1f761908734a282f686bf13456003c60250eee644684afb068d0'
             '068f700ef4e96ca931d56951b23ece9446e7313d7efa35df769ffa8579035d2f'
             'fa87fc20c0183e14ff06e03a558ef5315c2f65c8dee4bab1118ade80282ba399'
             '5dace545bf5047cbac01bc587ee4cf369600ee66b92d9f30f1229c00ae887ffa'
+            '5ff206405d2a95f0aecd9088c8e64c8c51e599c4dcadb71e98b30a26aa5c9ec8'
             '95bcb856f9b8b787703ea39b484661ef31341f0e218d863f8450975c29796516'
             'b41115f256a5d41a06897b9544660a6a02977642e68a985e0ad32b764944c82d'
             '7fd689f4ec88364d1ac00007e6f1e273ee9b53cae187e0f70e7f810303dc9303'
@@ -137,7 +139,8 @@ sha256sums=('ed1661128c9bd3e8c9f55e345f715b90fefcf6b127c77e0286773242e7a14e5c'
             '5df5b9a78427d3ab031b71f0f6a5a5ebb601fa11ff51ba65b8c2c82b0f354d4b'
             'a1dce936358ba3e95eaa9b18f6b53c5d643885f88cac4e538cdb7fa31fb00011'
             '9390f913c48aee12a92cec7690efc8de1a02d66fe0cd8cee0178ab1f115236d0'
-            '32d020e25927a8f46352ace3002ee43d1943d64c48ac9a58b09b939c26da35ca')
+            '32d020e25927a8f46352ace3002ee43d1943d64c48ac9a58b09b939c26da35ca'
+            '26ba916ccecaa5fff82d8fa7f6a3cb505e764ba8319696bce4ffccaf12abf95e')
 
 export KBUILD_BUILD_USER=$pkgbase
 export KBUILD_BUILD_HOST=eos
