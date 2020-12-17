@@ -11,8 +11,8 @@ _kernelname=-vd
 _sub=1
 #_rc=rc7
 pkgver=${_basekernel}.${_sub}
-pkgrel=2
-_archpatch=20201109
+pkgrel=4
+_archpatch=20201214
 _prjc="r0"
 _stablequeue=d5e269f576
 arch=('x86_64')
@@ -40,7 +40,7 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     # timers/core updates
     0005-timers-core-20201211.patch
     # Arch patches
-    0006-arch-patches510-${_archpatch}.patch::https://raw.githubusercontent.com/sirlucjan/kernel-patches/master/5.9/arch-patches-v5/0001-ZEN-Add-sysctl-and-CONFIG-to-disallow-unprivileged-C.patch
+    0006-arch-patches510-${_archpatch}.patch::https://raw.githubusercontent.com/sirlucjan/kernel-patches/master/5.10/arch-patches/0001-arch-patches.patch
     # CPU patches
     0007-graysky-cpu-optimizations.patch
     0008-enable-O3-for-all-archs-and-add-option-for-O1.patch
@@ -57,8 +57,8 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     0014-dma-add-support-for-amd-ptdma-controller-driver.patch
     0015-x86-set-and-use-cpu_die_id-on-amd-based-systems.patch
     0016-acpi-add-processor-to-the-ignore-PSD-override-list.patch
-    # amdgpu
-    0017-drm-amdgpu-disable-gfxoff-if-vcn-busy.patch
+    # amdgpu fixes
+    0017-drm-amdgpu-fixes.patch
     # cpuidle polling patch
     0018-cpuidle-select-polling-interval-based-on-cstate-with-a-longer-target-residency.patch
     # sched: select idle cpu from cpumask, use this patch without ProjectC
@@ -78,16 +78,19 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     #
     # MANJARO Patches
     #
-    # vd patches
+    # vd/hho patches
     2001-add-acpi_call-module.patch
     2002-tune-vm-mm-and-vfs-settings.patch
     2003-tune-cfs-settings.patch
-    2004-tune-cpufreq-ondemand-settings.patch
-    2005-optimise-kernel-and-module-compression.patch
+    2004-allow-cpufreq-ondemand-with-ProjectC.patch
+    2005-tune-cpufreq-ondemand-settings.patch
+    2006-optimise-kernel-and-module-compression.patch
     # ntfs3 driver
-    2006-ntfs-rw-gpl-driver-implementation-by-paragon-v14.patch
+    2007-ntfs-rw-gpl-driver-implementation-by-paragon-v14.patch
     # btrfs backports from hho+vd
-    2007-btrfs-patches-hho+vd.patch
+    2008-btrfs-patches-hho+vd.patch
+    # vfs hho
+    2009-vfs-hho-patches.patch
     #
     # Project C (BMQ+PDS)
     3001-projectc510-${_prjc}.patch # with context fixes for tip:sched/core
@@ -103,9 +106,9 @@ validpgpkeys=(
 
 sha256sums=('ed1661128c9bd3e8c9f55e345f715b90fefcf6b127c77e0286773242e7a14e5c'
             'SKIP'
-            '684940af20ca99513885ce778e4ffb2bae79afdbbd05a289af82c0a617958723'
-            '6de671e2d3aa86a82981cd015a448e959329d3c64c8f3850a4a98d814a66a03a'
-            '52956b39cba6ac7256218223757393deb2a34fe36627174c36c5315c9f939bef'
+            'bbb34f3ad62716a6dadbb5503300b1cad0a5baebf14be2eeba7f6a3b9a12edc9'
+            '31047e80723cba9794f89ddac418ad4f22a4743733f29cb31b0a3f585e69abca'
+            '5110cd4cb938a69e9f2759b3bdff70447399c52094cc36ef897c1b4bd6db8e73'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
             'cfd68ceb33a35766810e7812eb162a37d0ef56697c658c7f124c54288fef6533'
@@ -114,7 +117,7 @@ sha256sums=('ed1661128c9bd3e8c9f55e345f715b90fefcf6b127c77e0286773242e7a14e5c'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
             'e784b4613dd8fcb8c065fe36df5f78f9bc7174c5b923b2384da031e79ee6ba7c'
             '9323dc442ede2b5824955b4d958f887a3b2173d45395ad4492566f370760c7af'
-            'b8e9973780dd75f630733a6e323897486d4d9f27d63ebefac48190e247767072'
+            '0a9856f8cc3a9e3bfffa14bddde04762da85cbfc585c66717d3b3f0829a09f32'
             '429b41a987aa1a3b4975474d8b3ca2817a418435f4886e747140deed978ce284'
             '3d38fc4052b999b67aaed9fe9a4ba6ffd778ffbf7e94a66d5577391dbd08d12a'
             'b78ab97a629579ebc27ff175eacc9162a07c9b925cebd91099c97ef509bd117d'
@@ -125,7 +128,7 @@ sha256sums=('ed1661128c9bd3e8c9f55e345f715b90fefcf6b127c77e0286773242e7a14e5c'
             '1f47d3e3956c41b47656f675a90fad9e318c7133ffe663dc0fd2c9aa0fbfeb3e'
             '162049ed45fbd4e0e2e8bc566978df0b39baece6f32b162c24fe742ecb441589'
             '5000348583882523ef3c36df27eabf4355e83d0605081a3bf5d4aaa28e518162'
-            '53d63d9ac1250893921c45931f4e9ab9584e24ae8e72f4eca2f78d2faf59713a'
+            '5ff4325c7c6a98cc9f66a4caf411045db28cdb0a977471179cbbbf5cc8c3a93e'
             '052b51392dc7f1c24fc354d5a21d87a78489a1999850a14b543502ed2009b653'
             '068f700ef4e96ca931d56951b23ece9446e7313d7efa35df769ffa8579035d2f'
             'fa87fc20c0183e14ff06e03a558ef5315c2f65c8dee4bab1118ade80282ba399'
@@ -136,10 +139,12 @@ sha256sums=('ed1661128c9bd3e8c9f55e345f715b90fefcf6b127c77e0286773242e7a14e5c'
             '7fd689f4ec88364d1ac00007e6f1e273ee9b53cae187e0f70e7f810303dc9303'
             'f7a36231b794022d49e53f464d25e48f2eebf6266c2cbe5756c63aa3bf03bae7'
             'acca50a9ffee480f29bd7de6e8b5963dc0d37d3103871d75bcffdb2acce6c82d'
-            '5df5b9a78427d3ab031b71f0f6a5a5ebb601fa11ff51ba65b8c2c82b0f354d4b'
-            'a1dce936358ba3e95eaa9b18f6b53c5d643885f88cac4e538cdb7fa31fb00011'
+            '7d0d885c628a7ce84a1f74427b652e7da3ba3a22d792d88c81b11f9df05775e0'
+            '02d2c0e6b2459d4dbd6d4cecb3b269545a78b86cc9d2d3a0fda80bb3c3ee7604'
+            'a231aebaa262c60f5f0151819db4b06e92986d5c81e8e0a90e7089a0ac9d454c'
             '9390f913c48aee12a92cec7690efc8de1a02d66fe0cd8cee0178ab1f115236d0'
             '32d020e25927a8f46352ace3002ee43d1943d64c48ac9a58b09b939c26da35ca'
+            'f86ebc85cb935e8c1dc81e64de3f6bb4dc0a714f3a1761428abe4b777c7ddbbb'
             '26ba916ccecaa5fff82d8fa7f6a3cb505e764ba8319696bce4ffccaf12abf95e')
 
 export KBUILD_BUILD_USER=$pkgbase

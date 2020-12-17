@@ -1,21 +1,28 @@
-From c30cd5060795f1c58c13996d89c1e47b289ae73d Mon Sep 17 00:00:00 2001
+From 0794dd678216c17c64b9d7f5cca649eb590fd12f Mon Sep 17 00:00:00 2001
 From: torvic9 <torvic9@mailbox.org>
-Date: Wed, 11 Nov 2020 10:03:13 +0100
+Date: Thu, 17 Dec 2020 15:23:57 +0100
 Subject: [PATCH] optimise kernel and module compression
+
+Use smaller dictionary size for xz compression, also replace zstd22 by
+zstd18 because it is faster without losing much in terms of compression
+ratio. For the same reason, use lower values for gzip module and kernel
+compression.
+Finally, use lz4-4 instead of the default, offering slightly better
+compression ratio.
 
 Signed-off-by: torvic9 <torvic9@mailbox.org>
 ---
- Makefile                          |  4 ++--
- arch/x86/boot/compressed/Makefile |  2 +-
- scripts/Makefile.lib              | 12 ++++++------
- scripts/xz_wrap.sh                |  4 ++--
- 4 files changed, 11 insertions(+), 11 deletions(-)
+ Makefile                          | 4 ++--
+ arch/x86/boot/compressed/Makefile | 2 +-
+ scripts/Makefile.lib              | 8 ++++----
+ scripts/xz_wrap.sh                | 2 +-
+ 4 files changed, 8 insertions(+), 8 deletions(-)
 
 diff --git a/Makefile b/Makefile
-index 008aba5f1..52aadfd23 100644
+index 076d4e6b9..2cd099132 100644
 --- a/Makefile
 +++ b/Makefile
-@@ -1048,12 +1048,12 @@ export mod_strip_cmd
+@@ -1054,12 +1054,12 @@ export mod_strip_cmd
  
  mod_compress_cmd = true
  ifdef CONFIG_MODULE_COMPRESS
@@ -31,10 +38,10 @@ index 008aba5f1..52aadfd23 100644
  export mod_compress_cmd
  
 diff --git a/arch/x86/boot/compressed/Makefile b/arch/x86/boot/compressed/Makefile
-index ee249088c..2ff2417d0 100644
+index 40b8fd375..991be7219 100644
 --- a/arch/x86/boot/compressed/Makefile
 +++ b/arch/x86/boot/compressed/Makefile
-@@ -128,9 +128,9 @@ $(obj)/vmlinux.bin.lzo: $(vmlinux.bin.all-y) FORCE
+@@ -130,9 +130,9 @@ $(obj)/vmlinux.bin.lzo: $(vmlinux.bin.all-y) FORCE
  	$(call if_changed,lzo)
  $(obj)/vmlinux.bin.lz4: $(vmlinux.bin.all-y) FORCE
  	$(call if_changed,lz4)
@@ -46,7 +53,7 @@ index ee249088c..2ff2417d0 100644
  suffix-$(CONFIG_KERNEL_BZIP2)	:= bz2
  suffix-$(CONFIG_KERNEL_LZMA)	:= lzma
 diff --git a/scripts/Makefile.lib b/scripts/Makefile.lib
-index 941337088..9a6fec45f 100644
+index 941337088..de17884be 100644
 --- a/scripts/Makefile.lib
 +++ b/scripts/Makefile.lib
 @@ -269,9 +269,9 @@ cmd_objcopy = $(OBJCOPY) $(OBJCOPYFLAGS) $(OBJCOPYFLAGS_$(@F)) $< $@
@@ -55,22 +62,14 @@ index 941337088..9a6fec45f 100644
  
  quiet_cmd_gzip = GZIP    $@
 -      cmd_gzip = cat $(real-prereqs) | $(KGZIP) -n -f -9 > $@
-+      cmd_gzip = cat $(real-prereqs) | $(KGZIP) -6 -n -f > $@
++      cmd_gzip = cat $(real-prereqs) | $(KGZIP) -n -f > $@
  
  # DTC
  # ---------------------------------------------------------------------------
  DTC ?= $(objtree)/scripts/dtc/dtc
-@@ -369,15 +369,15 @@ quiet_cmd_bzip2 = BZIP2   $@
- # Lzma
- # ---------------------------------------------------------------------------
- 
- quiet_cmd_lzma = LZMA    $@
--      cmd_lzma = { cat $(real-prereqs) | $(LZMA) -9; $(size_append); } > $@
-+      cmd_lzma = { cat $(real-prereqs) | $(LZMA) -5; $(size_append); } > $@
- 
+@@ -375,9 +375,9 @@ quiet_cmd_lzma = LZMA    $@
  quiet_cmd_lzo = LZO     $@
--      cmd_lzo = { cat $(real-prereqs) | $(KLZOP) -9; $(size_append); } > $@
-+      cmd_lzo = { cat $(real-prereqs) | $(KLZOP) -7; $(size_append); } > $@
+       cmd_lzo = { cat $(real-prereqs) | $(KLZOP) -9; $(size_append); } > $@
  
  quiet_cmd_lz4 = LZ4     $@
 -      cmd_lz4 = { cat $(real-prereqs) | $(LZ4) -l -c1 stdin stdout; \
@@ -96,33 +95,22 @@ index 941337088..9a6fec45f 100644
  
  quiet_cmd_zstd = ZSTD    $@
 -      cmd_zstd = { cat $(real-prereqs) | $(ZSTD) -19; $(size_append); } > $@
-+      cmd_zstd = { cat $(real-prereqs) | $(ZSTD) -18 -T2; $(size_append); } > $@
++      cmd_zstd = { cat $(real-prereqs) | $(ZSTD) -T2 -18; $(size_append); } > $@
  
  quiet_cmd_zstd22 = ZSTD22  $@
        cmd_zstd22 = { cat $(real-prereqs) | $(ZSTD) -22 --ultra; $(size_append); } > $@
  
 diff --git a/scripts/xz_wrap.sh b/scripts/xz_wrap.sh
-index 76e9cbcfb..3dad850a5 100755
+index 76e9cbcfb..375bdf666 100755
 --- a/scripts/xz_wrap.sh
 +++ b/scripts/xz_wrap.sh
-@@ -9,9 +9,9 @@
- # You can do whatever you want with this file.
- #
- 
- BCJ=
--LZMA2OPTS=
-+LZMA2OPTS="dict=4MiB"
- 
- case $SRCARCH in
- 	x86)            BCJ=--x86 ;;
- 	powerpc)        BCJ=--powerpc ;;
 @@ -19,5 +19,5 @@ case $SRCARCH in
  	arm)            BCJ=--arm ;;
  	sparc)          BCJ=--sparc ;;
  esac
  
 -exec $XZ --check=crc32 $BCJ --lzma2=$LZMA2OPTS,dict=32MiB
-+exec $XZ --check=crc32 $BCJ --lzma2=$LZMA2OPTS -T2
++exec $XZ --check=crc32 $BCJ --lzma2=$LZMA2OPTS,dict=4MiB
 -- 
 2.29.2
 

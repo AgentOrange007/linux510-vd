@@ -1,0 +1,86 @@
+From ef3b2987254035f9b869f70151b4220c34f2f133 Mon Sep 17 00:00:00 2001
+From: Jiansong Chen <Jiansong.Chen@amd.com>
+Date: Fri, 30 Oct 2020 19:23:07 +0800
+Subject: drm/amdgpu: disable gfxoff if VCN is busy
+
+Toggle on/off gfxoff during video playback to fix gpu hang.
+
+v2: change sequence to be more compatible with original code.
+
+Signed-off-by: Jiansong Chen <Jiansong.Chen@amd.com>
+Reviewed-by: James Zhu <James.Zhu@amd.com>
+Reviewed-by: Hawking Zhang <Hawking.Zhang@amd.com>
+Signed-off-by: Alex Deucher <alexander.deucher@amd.com>
+---
+ drivers/gpu/drm/amd/amdgpu/amdgpu_vcn.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_vcn.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_vcn.c
+index 277a8435dd067..62d4614d48eb5 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_vcn.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_vcn.c
+@@ -358,6 +358,7 @@ static void amdgpu_vcn_idle_work_handler(struct work_struct *work)
+ 	}
+ 
+ 	if (!fences && !atomic_read(&adev->vcn.total_submission_cnt)) {
++		amdgpu_gfx_off_ctrl(adev, true);
+ 		amdgpu_device_ip_set_powergating_state(adev, AMD_IP_BLOCK_TYPE_VCN,
+ 		       AMD_PG_STATE_GATE);
+ 	} else {
+@@ -370,7 +371,9 @@ void amdgpu_vcn_ring_begin_use(struct amdgpu_ring *ring)
+ 	struct amdgpu_device *adev = ring->adev;
+ 
+ 	atomic_inc(&adev->vcn.total_submission_cnt);
+-	cancel_delayed_work_sync(&adev->vcn.idle_work);
++
++	if (!cancel_delayed_work_sync(&adev->vcn.idle_work))
++		amdgpu_gfx_off_ctrl(adev, false);
+ 
+ 	mutex_lock(&adev->vcn.vcn_pg_lock);
+ 	amdgpu_device_ip_set_powergating_state(adev, AMD_IP_BLOCK_TYPE_VCN,
+-- 
+cgit 1.2.3-1.el7
+
+From 20172ff3f0b4eddcdd1cf4ca31a7d922e9b4c662 Mon Sep 17 00:00:00 2001
+From: Victor Lu <victorchengchi.lu@amd.com>
+Date: Tue, 24 Nov 2020 10:06:04 -0500
+Subject: drm/amd/display: Change pstate expected timeout warning to 180us on
+ linux
+
+[Why]
+There is a warning that triggers when pstate takes too long.
+Pstate can take up to ~200us on Linux without hanging but
+it is currently set to 40us.
+
+[How]
+Change the timeout for the warning to be 180us on Linux.
+
+Signed-off-by: Victor Lu <victorchengchi.lu@amd.com>
+Reviewed-by: Roman Li <Roman.Li@amd.com>
+Acked-by: Qingqing Zhuo <qingqing.zhuo@amd.com>
+Signed-off-by: Alex Deucher <alexander.deucher@amd.com>
+---
+ drivers/gpu/drm/amd/display/dc/dcn10/dcn10_hubbub.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpu/drm/amd/display/dc/dcn10/dcn10_hubbub.c b/drivers/gpu/drm/amd/display/dc/dcn10/dcn10_hubbub.c
+index 75637c291e754..6f42d10dd772c 100644
+--- a/drivers/gpu/drm/amd/display/dc/dcn10/dcn10_hubbub.c
++++ b/drivers/gpu/drm/amd/display/dc/dcn10/dcn10_hubbub.c
+@@ -124,11 +124,11 @@ bool hubbub1_verify_allow_pstate_change_high(
+ 	 * still not asserted, we are probably stuck and going to hang
+ 	 *
+ 	 * TODO: Figure out why it takes ~100us on linux
+-	 * pstate takes around ~100us on linux. Unknown currently as to
+-	 * why it takes that long on linux
++	 * pstate takes around ~100us (up to 200us) on linux. Unknown currently
++	 * as to why it takes that long on linux
+ 	 */
+ 	const unsigned int pstate_wait_timeout_us = 200;
+-	const unsigned int pstate_wait_expected_timeout_us = 40;
++	const unsigned int pstate_wait_expected_timeout_us = 180;
+ 	static unsigned int max_sampled_pstate_wait_us; /* data collection */
+ 	static bool forced_pstate_allow; /* help with revert wa */
+ 
+-- 
+cgit 1.2.3-1.el7

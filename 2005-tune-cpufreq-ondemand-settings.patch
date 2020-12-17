@@ -3,6 +3,8 @@ From: torvic9 <torvic9@mailbox.org>
 Date: Tue, 10 Nov 2020 10:47:27 +0100
 Subject: [PATCH] tune cpufreq ondemand settings
 
+Make ondemand governor ramp up frequency earlier, and keep it for longer.
+
 Signed-off-by: torvic9 <torvic9@mailbox.org>
 ---
  drivers/cpufreq/cpufreq_ondemand.c | 6 +++---
