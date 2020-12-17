@@ -28,7 +28,7 @@ index 85de313dd..d018fb2af 100644
  config CPU_FREQ_DEFAULT_GOV_ONDEMAND
  	bool "ondemand"
 -	depends on !(X86_INTEL_PSTATE && SMP)
-+	depends on SCHED_ALT && (SCHED_BMQ || SCHED_PDS)
++	depends on SCHED_ALT && !(X86_INTEL_PSTATE && SMP)
  	select CPU_FREQ_GOV_ONDEMAND
  	select CPU_FREQ_GOV_PERFORMANCE
  	help

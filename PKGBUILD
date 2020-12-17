@@ -11,7 +11,7 @@ _kernelname=-vd
 _sub=1
 #_rc=rc7
 pkgver=${_basekernel}.${_sub}
-pkgrel=4
+pkgrel=2
 _archpatch=20201214
 _prjc="r0"
 _stablequeue=d5e269f576
@@ -69,9 +69,9 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     0021-objtool-fix-segfault-with-clang-non-section-symbols.patch
     #
     # futex_wait_multiple
-    #1001-futex-futex_wait_multiple-krisman.patch
+    # 1001-futex-futex_wait_multiple-krisman.patch
     1001-futex-valve-integ-20201126.patch
-    1002-futex2-stable.patch
+    # 1002-futex2-stable.patch # we don't yet need this
     # x86/entry and core/entry with syscall user dispatcher
     1003-x86-entry-20201029.patch
     1004-core-entry-20201202.patch
@@ -106,9 +106,9 @@ validpgpkeys=(
 
 sha256sums=('ed1661128c9bd3e8c9f55e345f715b90fefcf6b127c77e0286773242e7a14e5c'
             'SKIP'
-            'bbb34f3ad62716a6dadbb5503300b1cad0a5baebf14be2eeba7f6a3b9a12edc9'
+            '1b8bfc647ad085a4f9eb664304dcc37c1c4288b1dc1be0c0d16756080166fcc9'
             '31047e80723cba9794f89ddac418ad4f22a4743733f29cb31b0a3f585e69abca'
-            '5110cd4cb938a69e9f2759b3bdff70447399c52094cc36ef897c1b4bd6db8e73'
+            'e6019847a06e672af8ff33b062927753c410605c4487ce95092bc31c3313c391'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
             'cfd68ceb33a35766810e7812eb162a37d0ef56697c658c7f124c54288fef6533'
@@ -133,13 +133,12 @@ sha256sums=('ed1661128c9bd3e8c9f55e345f715b90fefcf6b127c77e0286773242e7a14e5c'
             '068f700ef4e96ca931d56951b23ece9446e7313d7efa35df769ffa8579035d2f'
             'fa87fc20c0183e14ff06e03a558ef5315c2f65c8dee4bab1118ade80282ba399'
             '5dace545bf5047cbac01bc587ee4cf369600ee66b92d9f30f1229c00ae887ffa'
-            '5ff206405d2a95f0aecd9088c8e64c8c51e599c4dcadb71e98b30a26aa5c9ec8'
             '95bcb856f9b8b787703ea39b484661ef31341f0e218d863f8450975c29796516'
             'b41115f256a5d41a06897b9544660a6a02977642e68a985e0ad32b764944c82d'
             '7fd689f4ec88364d1ac00007e6f1e273ee9b53cae187e0f70e7f810303dc9303'
             'f7a36231b794022d49e53f464d25e48f2eebf6266c2cbe5756c63aa3bf03bae7'
             'acca50a9ffee480f29bd7de6e8b5963dc0d37d3103871d75bcffdb2acce6c82d'
-            '7d0d885c628a7ce84a1f74427b652e7da3ba3a22d792d88c81b11f9df05775e0'
+            '133ae82b294b3f3acbaba509395b924db960dabc1fb58bc15d94e13d7ef3b809'
             '02d2c0e6b2459d4dbd6d4cecb3b269545a78b86cc9d2d3a0fda80bb3c3ee7604'
             'a231aebaa262c60f5f0151819db4b06e92986d5c81e8e0a90e7089a0ac9d454c'
             '9390f913c48aee12a92cec7690efc8de1a02d66fe0cd8cee0178ab1f115236d0'
