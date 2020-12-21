@@ -17,7 +17,7 @@ index 85de313dd..d018fb2af 100644
  	default CPU_FREQ_DEFAULT_GOV_SCHEDUTIL if ARM64 || ARM
  	default CPU_FREQ_DEFAULT_GOV_SCHEDUTIL if X86_INTEL_PSTATE && SMP
  	default CPU_FREQ_DEFAULT_GOV_PERFORMANCE
-+	default CPU_FREQ_DEFAULT_GOV_ONDEMAND if SCHED_ALT
++	default CPU_FREQ_DEFAULT_GOV_ONDEMAND if SCHED_ALT && !(X86_INTEL_PSTATE)
  	help
  	  This option sets which CPUFreq governor shall be loaded at
  	  startup. If in doubt, use the default setting.
@@ -29,6 +29,7 @@ index 85de313dd..d018fb2af 100644
  	bool "ondemand"
 -	depends on !(X86_INTEL_PSTATE && SMP)
 +	depends on SCHED_ALT && !(X86_INTEL_PSTATE && SMP)
+>>>>>>> 4bdb737a275fa642a03367e9fcecc32b34de1135
  	select CPU_FREQ_GOV_ONDEMAND
  	select CPU_FREQ_GOV_PERFORMANCE
  	help
