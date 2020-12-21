@@ -8,13 +8,13 @@ pkgbase=linux510-vd
 pkgname=('linux510-vd' 'linux510-vd-headers')
 _basekernel=5.10
 _kernelname=-vd
-_sub=1
+_sub=2
 #_rc=rc7
 pkgver=${_basekernel}.${_sub}
-pkgrel=4
+pkgrel=1
 _archpatch=20201214
 _prjc="r0"
-_stablequeue=d5e269f576
+_stablequeue=7fd3f36433
 arch=('x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
@@ -26,7 +26,7 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     'config.x86_64' 'config.x270' 'config.zen2' 'x509.genkey' "${pkgbase}.preset"
     #
     # Prepatch from stable-queue
-    "prepatch-${_basekernel/./}-g${_stablequeue}.patch"
+    #"prepatch-${_basekernel/./}-g${_stablequeue}.patch"
     #
     # sched/core patches
     0001-sched-tip-picks-20201216.patch # use this with ProjectC
@@ -104,14 +104,13 @@ validpgpkeys=(
   '647F28654894E3BD457199BE38DBBDC86092693E'  # Greg Kroah-Hartman
 )
 
-sha256sums=('ed1661128c9bd3e8c9f55e345f715b90fefcf6b127c77e0286773242e7a14e5c'
+sha256sums=('3b84e13abae26af17ebccc4d7212f5843a991127a73a320848d5c6942ef781a2'
             'SKIP'
             'bbb34f3ad62716a6dadbb5503300b1cad0a5baebf14be2eeba7f6a3b9a12edc9'
             '31047e80723cba9794f89ddac418ad4f22a4743733f29cb31b0a3f585e69abca'
             '5110cd4cb938a69e9f2759b3bdff70447399c52094cc36ef897c1b4bd6db8e73'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
-            'cfd68ceb33a35766810e7812eb162a37d0ef56697c658c7f124c54288fef6533'
             '4b4c728c265c7697acf015b5448963ed070b97122170a89083789f29c25d8c09'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
@@ -139,7 +138,7 @@ sha256sums=('ed1661128c9bd3e8c9f55e345f715b90fefcf6b127c77e0286773242e7a14e5c'
             '7fd689f4ec88364d1ac00007e6f1e273ee9b53cae187e0f70e7f810303dc9303'
             'f7a36231b794022d49e53f464d25e48f2eebf6266c2cbe5756c63aa3bf03bae7'
             'acca50a9ffee480f29bd7de6e8b5963dc0d37d3103871d75bcffdb2acce6c82d'
-            '7d0d885c628a7ce84a1f74427b652e7da3ba3a22d792d88c81b11f9df05775e0'
+            'ac01694f4f9242776321152a85239b0f5013a943d3d743fa30613dc01f4e0bc3'
             '02d2c0e6b2459d4dbd6d4cecb3b269545a78b86cc9d2d3a0fda80bb3c3ee7604'
             'a231aebaa262c60f5f0151819db4b06e92986d5c81e8e0a90e7089a0ac9d454c'
             '9390f913c48aee12a92cec7690efc8de1a02d66fe0cd8cee0178ab1f115236d0'
