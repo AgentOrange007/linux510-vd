@@ -14,7 +14,7 @@ pkgver=${_basekernel}.${_sub}
 pkgrel=1
 _archpatch=20201214
 _prjc="r0"
-_stablequeue=7fd3f36433
+_stablequeue=4e00fb8ecf
 arch=('x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
@@ -26,7 +26,7 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     'config.x86_64' 'config.x270' 'config.zen2' 'x509.genkey' "${pkgbase}.preset"
     #
     # Prepatch from stable-queue
-    #"prepatch-${_basekernel/./}-g${_stablequeue}.patch"
+    "prepatch-${_basekernel/./}-g${_stablequeue}.patch"
     #
     # sched/core patches
     0001-sched-tip-picks-20201216.patch # use this with ProjectC
@@ -111,6 +111,7 @@ sha256sums=('3b84e13abae26af17ebccc4d7212f5843a991127a73a320848d5c6942ef781a2'
             'e6019847a06e672af8ff33b062927753c410605c4487ce95092bc31c3313c391'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
+            'a42243061205fdc9aaf00204f4c5e6faf67a13fe773cf870a5ab34e7f452378a'
             '4b4c728c265c7697acf015b5448963ed070b97122170a89083789f29c25d8c09'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
@@ -137,7 +138,7 @@ sha256sums=('3b84e13abae26af17ebccc4d7212f5843a991127a73a320848d5c6942ef781a2'
             '7fd689f4ec88364d1ac00007e6f1e273ee9b53cae187e0f70e7f810303dc9303'
             'f7a36231b794022d49e53f464d25e48f2eebf6266c2cbe5756c63aa3bf03bae7'
             'acca50a9ffee480f29bd7de6e8b5963dc0d37d3103871d75bcffdb2acce6c82d'
-            '4c6cc774be0428d912b3499993acd8b314967c0efe28f552483bd019722ac0e0'
+            '6c5ab3bf4b74446fa3be63ee3c2c7e3ef3b4ab582573237aa859e4c6fd9804db'
             '02d2c0e6b2459d4dbd6d4cecb3b269545a78b86cc9d2d3a0fda80bb3c3ee7604'
             'a231aebaa262c60f5f0151819db4b06e92986d5c81e8e0a90e7089a0ac9d454c'
             '9390f913c48aee12a92cec7690efc8de1a02d66fe0cd8cee0178ab1f115236d0'

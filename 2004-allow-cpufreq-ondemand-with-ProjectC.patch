@@ -29,7 +29,6 @@ index 85de313dd..d018fb2af 100644
  	bool "ondemand"
 -	depends on !(X86_INTEL_PSTATE && SMP)
 +	depends on SCHED_ALT && !(X86_INTEL_PSTATE && SMP)
->>>>>>> 4bdb737a275fa642a03367e9fcecc32b34de1135
  	select CPU_FREQ_GOV_ONDEMAND
  	select CPU_FREQ_GOV_PERFORMANCE
  	help
