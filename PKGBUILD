@@ -106,9 +106,9 @@ validpgpkeys=(
 
 sha256sums=('904e396c26e9992a16cd1cc989460171536bed7739bf36049f6eb020ee5d56ec'
             'SKIP'
-            '1b8bfc647ad085a4f9eb664304dcc37c1c4288b1dc1be0c0d16756080166fcc9'
-            '31047e80723cba9794f89ddac418ad4f22a4743733f29cb31b0a3f585e69abca'
-            'e6019847a06e672af8ff33b062927753c410605c4487ce95092bc31c3313c391'
+            'b89533ea7e0e741bf5427a57a7c1f3d0a49f496ad77a346116cb5bfc94e0c176'
+            'b66d0125587d44a2fa3845f7b2f8632f5871c22b5cc40ee01d16a3e8b6400b85'
+            'af2718edf05c62c2cc0d5419fca62233cdc35f1c3b6111d90a5c80fbbf89bf82'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
             '61874156f4a0f6ecd6bccbc298b43bb08928b178479b7cbda2414712d111dccd'
@@ -150,7 +150,7 @@ export KBUILD_BUILD_HOST=eos
 export KBUILD_BUILD_TIMESTAMP="$(date -Ru${SOURCE_DATE_EPOCH:+d @$SOURCE_DATE_EPOCH})"
 
 # signing
-_signing=1
+_signing=0
 # edit the paths below to point to your signing keys
 _key="$HOME/build/keys/vd510-kernel-key.pem"
 _pubkey="$HOME/build/keys/vd510-kernel-pubkey.pem"
