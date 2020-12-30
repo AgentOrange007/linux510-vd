@@ -8,13 +8,13 @@ pkgbase=linux510-vd
 pkgname=('linux510-vd' 'linux510-vd-headers')
 _basekernel=5.10
 _kernelname=-vd
-_sub=2
+_sub=4
 #_rc=rc7
 pkgver=${_basekernel}.${_sub}
 pkgrel=1
-_archpatch=20201214
-_prjc="r0"
-_stablequeue=4e00fb8ecf
+_archpatch=20201228
+_prjc="r1"
+_stablequeue=461627e7e0
 arch=('x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
@@ -26,7 +26,7 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     'config.x86_64' 'config.x270' 'config.zen2' 'x509.genkey' "${pkgbase}.preset"
     #
     # Prepatch from stable-queue
-    "prepatch-${_basekernel/./}-g${_stablequeue}.patch"
+    #"prepatch-${_basekernel/./}-g${_stablequeue}.patch"
     #
     # sched/core patches
     0001-sched-tip-picks-20201216.patch # use this with ProjectC
@@ -40,7 +40,7 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     # timers/core updates
     0005-timers-core-20201211.patch
     # Arch patches
-    0006-arch-patches510-${_archpatch}.patch::https://raw.githubusercontent.com/sirlucjan/kernel-patches/master/5.10/arch-patches/0001-arch-patches.patch
+    0006-arch-patches510-${_archpatch}.patch::https://raw.githubusercontent.com/sirlucjan/kernel-patches/master/5.10/arch-patches-v3/0001-arch-patches.patch
     # CPU patches
     0007-graysky-cpu-optimizations.patch
     0008-enable-O3-for-all-archs-and-add-option-for-O1.patch
@@ -86,14 +86,14 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     2005-tune-cpufreq-ondemand-settings.patch
     2006-optimise-kernel-and-module-compression.patch
     # ntfs3 driver
-    2007-ntfs-rw-gpl-driver-implementation-by-paragon-v14.patch
+    2007-ntfs-rw-gpl-driver-implementation-by-paragon-v16.patch
     # btrfs backports from hho+vd
-    2008-btrfs-patches-hho+vd.patch
+    2008-btrfs-patches-hho.patch
     # vfs hho
     2009-vfs-hho-patches.patch
     #
     # Project C (BMQ+PDS)
-    3001-projectc510-${_prjc}.patch # with context fixes for tip:sched/core
+    3001-projectc510-${_prjc}.patch # with context fix for tip:sched/core
     #
     # i10 i/o scheduler
     #4001-i10-io-sched.patch::https://raw.githubusercontent.com/i10-kernel/upstream-linux/master/0001-iosched-Add-i10-I-O-Scheduler.patch
@@ -104,20 +104,19 @@ validpgpkeys=(
   '647F28654894E3BD457199BE38DBBDC86092693E'  # Greg Kroah-Hartman
 )
 
-sha256sums=('3b84e13abae26af17ebccc4d7212f5843a991127a73a320848d5c6942ef781a2'
+sha256sums=('904e396c26e9992a16cd1cc989460171536bed7739bf36049f6eb020ee5d56ec'
             'SKIP'
             '1b8bfc647ad085a4f9eb664304dcc37c1c4288b1dc1be0c0d16756080166fcc9'
             '31047e80723cba9794f89ddac418ad4f22a4743733f29cb31b0a3f585e69abca'
             'e6019847a06e672af8ff33b062927753c410605c4487ce95092bc31c3313c391'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
-            'a42243061205fdc9aaf00204f4c5e6faf67a13fe773cf870a5ab34e7f452378a'
-            '4b4c728c265c7697acf015b5448963ed070b97122170a89083789f29c25d8c09'
+            '61874156f4a0f6ecd6bccbc298b43bb08928b178479b7cbda2414712d111dccd'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
             'e784b4613dd8fcb8c065fe36df5f78f9bc7174c5b923b2384da031e79ee6ba7c'
             '9323dc442ede2b5824955b4d958f887a3b2173d45395ad4492566f370760c7af'
-            '0a9856f8cc3a9e3bfffa14bddde04762da85cbfc585c66717d3b3f0829a09f32'
+            'f9ba1ce8361653209c6b5f25fdd3576d72619ca3bbb5df7cc930cbd8d2ff5c50'
             '429b41a987aa1a3b4975474d8b3ca2817a418435f4886e747140deed978ce284'
             '3d38fc4052b999b67aaed9fe9a4ba6ffd778ffbf7e94a66d5577391dbd08d12a'
             'b78ab97a629579ebc27ff175eacc9162a07c9b925cebd91099c97ef509bd117d'
@@ -126,7 +125,7 @@ sha256sums=('3b84e13abae26af17ebccc4d7212f5843a991127a73a320848d5c6942ef781a2'
             '4eaf4b72718637dbd6acd7c88215bf4ac7de1f6a7fc2b484ed7b565bfb8651b1'
             'e7d724ac15daf428aa1e6a03737e5c1d040892d55fda8a66897fcac9323f285c'
             '1f47d3e3956c41b47656f675a90fad9e318c7133ffe663dc0fd2c9aa0fbfeb3e'
-            '162049ed45fbd4e0e2e8bc566978df0b39baece6f32b162c24fe742ecb441589'
+            'd2bf46b58008faf9a2275f4d63c480383d45ea8ec2dadc7262f0b0aaf8056aea'
             '5000348583882523ef3c36df27eabf4355e83d0605081a3bf5d4aaa28e518162'
             '5ff4325c7c6a98cc9f66a4caf411045db28cdb0a977471179cbbbf5cc8c3a93e'
             '052b51392dc7f1c24fc354d5a21d87a78489a1999850a14b543502ed2009b653'
@@ -141,17 +140,17 @@ sha256sums=('3b84e13abae26af17ebccc4d7212f5843a991127a73a320848d5c6942ef781a2'
             '6c5ab3bf4b74446fa3be63ee3c2c7e3ef3b4ab582573237aa859e4c6fd9804db'
             '02d2c0e6b2459d4dbd6d4cecb3b269545a78b86cc9d2d3a0fda80bb3c3ee7604'
             'a231aebaa262c60f5f0151819db4b06e92986d5c81e8e0a90e7089a0ac9d454c'
-            '9390f913c48aee12a92cec7690efc8de1a02d66fe0cd8cee0178ab1f115236d0'
-            '32d020e25927a8f46352ace3002ee43d1943d64c48ac9a58b09b939c26da35ca'
+            'd37d84ca195f1519416e0aedb0c19bde574a5adbc644c8726403f62805f4d330'
+            'a3efaac75b33e2bf6fd353486798a92148b6a9235ae24e467bbdda3fde6eecea'
             'f86ebc85cb935e8c1dc81e64de3f6bb4dc0a714f3a1761428abe4b777c7ddbbb'
-            '26ba916ccecaa5fff82d8fa7f6a3cb505e764ba8319696bce4ffccaf12abf95e')
+            'bee6a9e0d2427b2b2ee8db2ff982c90be0563001a6065f882b19fedc9323d49a')
 
 export KBUILD_BUILD_USER=$pkgbase
 export KBUILD_BUILD_HOST=eos
 export KBUILD_BUILD_TIMESTAMP="$(date -Ru${SOURCE_DATE_EPOCH:+d @$SOURCE_DATE_EPOCH})"
 
 # signing
-_signing=0
+_signing=1
 # edit the paths below to point to your signing keys
 _key="$HOME/build/keys/vd510-kernel-key.pem"
 _pubkey="$HOME/build/keys/vd510-kernel-pubkey.pem"
