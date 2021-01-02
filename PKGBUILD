@@ -86,7 +86,7 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     2005-tune-cpufreq-ondemand-settings.patch
     2006-optimise-kernel-and-module-compression.patch
     # ntfs3 driver
-    2007-ntfs-rw-gpl-driver-implementation-by-paragon-v16.patch
+    2007-ntfs-rw-gpl-driver-implementation-by-paragon-v17.patch
     # btrfs backports from hho+vd
     2008-btrfs-patches-hho.patch
     # vfs hho
@@ -140,7 +140,7 @@ sha256sums=('904e396c26e9992a16cd1cc989460171536bed7739bf36049f6eb020ee5d56ec'
             '6c5ab3bf4b74446fa3be63ee3c2c7e3ef3b4ab582573237aa859e4c6fd9804db'
             '02d2c0e6b2459d4dbd6d4cecb3b269545a78b86cc9d2d3a0fda80bb3c3ee7604'
             'a231aebaa262c60f5f0151819db4b06e92986d5c81e8e0a90e7089a0ac9d454c'
-            'd37d84ca195f1519416e0aedb0c19bde574a5adbc644c8726403f62805f4d330'
+            'fdb08f3fbfdd0ba71fbef5eed3f2617fd49214c40466a3c27e3bd0bf3861f90f'
             'a3efaac75b33e2bf6fd353486798a92148b6a9235ae24e467bbdda3fde6eecea'
             'f86ebc85cb935e8c1dc81e64de3f6bb4dc0a714f3a1761428abe4b777c7ddbbb'
             'bee6a9e0d2427b2b2ee8db2ff982c90be0563001a6065f882b19fedc9323d49a')
