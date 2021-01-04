@@ -11,10 +11,10 @@ _kernelname=-vd
 _sub=4
 #_rc=rc7
 pkgver=${_basekernel}.${_sub}
-pkgrel=1
-_archpatch=20201228
-_prjc="r1"
-_stablequeue=461627e7e0
+pkgrel=2
+_archpatch=20210101
+_prjc="r2"
+_stablequeue=26a85f63f4
 arch=('x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
@@ -26,7 +26,7 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     'config.x86_64' 'config.x270' 'config.zen2' 'x509.genkey' "${pkgbase}.preset"
     #
     # Prepatch from stable-queue
-    #"prepatch-${_basekernel/./}-g${_stablequeue}.patch"
+    "prepatch-${_basekernel/./}-g${_stablequeue}.patch"
     #
     # sched/core patches
     0001-sched-tip-picks-20201216.patch # use this with ProjectC
@@ -40,7 +40,7 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     # timers/core updates
     0005-timers-core-20201211.patch
     # Arch patches
-    0006-arch-patches510-${_archpatch}.patch::https://raw.githubusercontent.com/sirlucjan/kernel-patches/master/5.10/arch-patches-v3/0001-arch-patches.patch
+    0006-arch-patches510-${_archpatch}.patch::https://raw.githubusercontent.com/sirlucjan/kernel-patches/master/5.10/arch-patches-v6/0001-arch-patches.patch
     # CPU patches
     0007-graysky-cpu-optimizations.patch
     0008-enable-O3-for-all-archs-and-add-option-for-O1.patch
@@ -71,7 +71,7 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     # futex_wait_multiple
     # 1001-futex-futex_wait_multiple-krisman.patch
     1001-futex-valve-integ-20201126.patch
-    # 1002-futex2-stable.patch # we don't yet need this
+    # 1002-futex2-stable.patch # we do not yet need this
     # x86/entry and core/entry with syscall user dispatcher
     1003-x86-entry-20201029.patch
     1004-core-entry-20201202.patch
@@ -111,12 +111,13 @@ sha256sums=('904e396c26e9992a16cd1cc989460171536bed7739bf36049f6eb020ee5d56ec'
             'af2718edf05c62c2cc0d5419fca62233cdc35f1c3b6111d90a5c80fbbf89bf82'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
+            'c876e7c8faf8475a36db5f1b0da6cb4af740035241229f40b05056e613504dc1'
             '61874156f4a0f6ecd6bccbc298b43bb08928b178479b7cbda2414712d111dccd'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
             'e784b4613dd8fcb8c065fe36df5f78f9bc7174c5b923b2384da031e79ee6ba7c'
             '9323dc442ede2b5824955b4d958f887a3b2173d45395ad4492566f370760c7af'
-            'f9ba1ce8361653209c6b5f25fdd3576d72619ca3bbb5df7cc930cbd8d2ff5c50'
+            '5ab414d1f0aaded8b6ee21fa47b3133f6a2be442339c5f9fee479492e8dac6e2'
             '429b41a987aa1a3b4975474d8b3ca2817a418435f4886e747140deed978ce284'
             '3d38fc4052b999b67aaed9fe9a4ba6ffd778ffbf7e94a66d5577391dbd08d12a'
             'b78ab97a629579ebc27ff175eacc9162a07c9b925cebd91099c97ef509bd117d'
@@ -143,7 +144,7 @@ sha256sums=('904e396c26e9992a16cd1cc989460171536bed7739bf36049f6eb020ee5d56ec'
             'fdb08f3fbfdd0ba71fbef5eed3f2617fd49214c40466a3c27e3bd0bf3861f90f'
             'a3efaac75b33e2bf6fd353486798a92148b6a9235ae24e467bbdda3fde6eecea'
             'f86ebc85cb935e8c1dc81e64de3f6bb4dc0a714f3a1761428abe4b777c7ddbbb'
-            'bee6a9e0d2427b2b2ee8db2ff982c90be0563001a6065f882b19fedc9323d49a')
+            '01ac61d81f3ae28713a81c1522f09ed64faeff9913e49c7886d2f1a15740d2c3')
 
 export KBUILD_BUILD_USER=$pkgbase
 export KBUILD_BUILD_HOST=eos
@@ -162,8 +163,8 @@ _clang=0
 if [[ ${_clang} -eq 1 ]]; then
 	LLVMOPTS="LLVM=1 LLVM_IAS=1"
 	CLANGOPTS="CC=clang LD=ld.lld"
-	source+=('clang-lto-20201211.patch')
-	sha256sums+=('906275255d28c3ebe8b5604e74a43bb7b5bc885ebc9290094aa1520c57948e22')
+	source+=('clang-lto-20201230.patch')
+	sha256sums+=('33d8144d5529ce703e9a4b5d80400c310db2711f8b77c3456ebd2132e8dfb3c3')
 else
 	LLVMOPTS=""
 	CLANGOPTS=""
