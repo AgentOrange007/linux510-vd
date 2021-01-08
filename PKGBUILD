@@ -11,10 +11,10 @@ _kernelname=-vd
 _sub=5
 #_rc=rc7
 pkgver=${_basekernel}.${_sub}
-pkgrel=1
-_archpatch=20210101
+pkgrel=2
+_archpatch=20210107
 _prjc="r2"
-_stablequeue=26a85f63f4
+_stablequeue=b56f8a785e
 arch=('x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
@@ -26,7 +26,7 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     'config.x86_64' 'config.x270' 'config.zen2' 'x509.genkey' "${pkgbase}.preset"
     #
     # Prepatch from stable-queue
-    #"prepatch-${_basekernel/./}-g${_stablequeue}.patch"
+    "prepatch-${_basekernel/./}-g${_stablequeue}.patch"
     #
     # sched/core patches
     0001-sched-tip-picks-20201216.patch # use this with ProjectC
@@ -40,7 +40,7 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     # timers/core updates
     0005-timers-core-20201211.patch
     # Arch patches
-    0006-arch-patches510-${_archpatch}.patch::https://raw.githubusercontent.com/sirlucjan/kernel-patches/master/5.10/arch-patches-v6/0001-arch-patches.patch
+    0006-arch-patches510-${_archpatch}.patch::https://raw.githubusercontent.com/sirlucjan/kernel-patches/master/5.10/arch-patches-v8/0001-arch-patches.patch
     # CPU patches
     0007-graysky-cpu-optimizations.patch
     0008-enable-O3-for-all-archs-and-add-option-for-O1.patch
@@ -106,17 +106,18 @@ validpgpkeys=(
 
 sha256sums=('3991a9e16a187d78d5f414d89236ae5d7f404a69e60c4c42a9d262ee19612ef4'
             'SKIP'
-            'b89533ea7e0e741bf5427a57a7c1f3d0a49f496ad77a346116cb5bfc94e0c176'
-            'd9fddfac931c1009ba5dfecd2f07ae2276b07f026033787663d559884e55f601'
-            'af2718edf05c62c2cc0d5419fca62233cdc35f1c3b6111d90a5c80fbbf89bf82'
+            '0c710c857a24b6591c2d813b3bd5968983cbbf770f2fc5f9a8fdeda9e69fd53a'
+            '0ea554a28cd9f2928ba83dd599b1203555d68ceb6070ad73e31429fb466a9f22'
+            '5f3ba0271740d5921af99d61727a1a527b922746b7f8c8bb32fc4a210147d9d2'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
+            '963c0bd200d54238298bd2ab237b3fabaf2682b53419540920744cf38a2417d5'
             '61874156f4a0f6ecd6bccbc298b43bb08928b178479b7cbda2414712d111dccd'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
             'e784b4613dd8fcb8c065fe36df5f78f9bc7174c5b923b2384da031e79ee6ba7c'
             '9323dc442ede2b5824955b4d958f887a3b2173d45395ad4492566f370760c7af'
-            '5ab414d1f0aaded8b6ee21fa47b3133f6a2be442339c5f9fee479492e8dac6e2'
+            '66257f13b1381b71c5fb724c7049561ce09511adc24b3e981a1d42338403cae7'
             '429b41a987aa1a3b4975474d8b3ca2817a418435f4886e747140deed978ce284'
             '3d38fc4052b999b67aaed9fe9a4ba6ffd778ffbf7e94a66d5577391dbd08d12a'
             'b78ab97a629579ebc27ff175eacc9162a07c9b925cebd91099c97ef509bd117d'
