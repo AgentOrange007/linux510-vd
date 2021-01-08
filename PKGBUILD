@@ -94,9 +94,11 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     #
     # Project C (BMQ+PDS)
     3001-projectc510-${_prjc}.patch # with context fix for tip:sched/core
+    # CalcULE
+    # 3002-calcule-59.patch::https://raw.githubusercontent.com/hamadmarri/cacule-cpu-scheduler/master/patches/CacULE/v5.9/cacule5.9.patch
+    # Cachy
+    # 3003-cachy-59-r9.patch::https://raw.githubusercontent.com/hamadmarri/cacule-cpu-scheduler/master/patches/Cachy/v5.9/cachy-5.9-r9.patch
     #
-    # i10 i/o scheduler
-    #4001-i10-io-sched.patch::https://raw.githubusercontent.com/i10-kernel/upstream-linux/master/0001-iosched-Add-i10-I-O-Scheduler.patch
 )
 
 validpgpkeys=(
