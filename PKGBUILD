@@ -8,10 +8,10 @@ pkgbase=linux510-vd
 pkgname=('linux510-vd' 'linux510-vd-headers')
 _basekernel=5.10
 _kernelname=-vd
-_sub=5
+_sub=6
 #_rc=rc7
 pkgver=${_basekernel}.${_sub}
-pkgrel=2
+pkgrel=1
 _archpatch=20210107
 _prjc="r2"
 _stablequeue=b56f8a785e
@@ -26,7 +26,7 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     'config.x86_64' 'config.x270' 'config.zen2' 'x509.genkey' "${pkgbase}.preset"
     #
     # Prepatch from stable-queue
-    "prepatch-${_basekernel/./}-g${_stablequeue}.patch"
+    #"prepatch-${_basekernel/./}-g${_stablequeue}.patch"
     #
     # sched/core patches
     0001-sched-tip-picks-20201216.patch # use this with ProjectC
@@ -106,14 +106,13 @@ validpgpkeys=(
   '647F28654894E3BD457199BE38DBBDC86092693E'  # Greg Kroah-Hartman
 )
 
-sha256sums=('3991a9e16a187d78d5f414d89236ae5d7f404a69e60c4c42a9d262ee19612ef4'
+sha256sums=('7767d02c1cb5eb2a8d3c2b15a3f93e85b98baa6e9d93a3b9e3ec0e959d0a690b'
             'SKIP'
             '0c710c857a24b6591c2d813b3bd5968983cbbf770f2fc5f9a8fdeda9e69fd53a'
             '0ea554a28cd9f2928ba83dd599b1203555d68ceb6070ad73e31429fb466a9f22'
             '5f3ba0271740d5921af99d61727a1a527b922746b7f8c8bb32fc4a210147d9d2'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
-            '963c0bd200d54238298bd2ab237b3fabaf2682b53419540920744cf38a2417d5'
             '61874156f4a0f6ecd6bccbc298b43bb08928b178479b7cbda2414712d111dccd'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
