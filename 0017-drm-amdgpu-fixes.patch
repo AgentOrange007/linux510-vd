@@ -84,3 +84,83 @@ index 75637c291e754..6f42d10dd772c 100644
  
 -- 
 cgit 1.2.3-1.el7
+
+From patchwork Fri Jan  8 21:58:38 2021
+From: Jeremy Cline <jcline@redhat.com>
+To: Harry Wentland <harry.wentland@amd.com>,
+	Leo Li <sunpeng.li@amd.com>
+Subject: [PATCH] amdgpu: Avoid sleeping during FPU critical sections
+Date: Fri,  8 Jan 2021 16:58:38 -0500
+List-Id: Direct Rendering Infrastructure - Development
+ <dri-devel.lists.freedesktop.org>
+
+dcn20_resource_construct() includes a number of kzalloc(GFP_KERNEL)
+calls which can sleep, but kernel_fpu_begin() disables preemption and
+sleeping in this context is invalid.
+
+The only places the FPU appears to be required is in the
+init_soc_bounding_box() function and when calculating the
+{min,max}_fill_clk_mhz. Narrow the scope to just these two parts to
+avoid sleeping while using the FPU.
+
+Fixes: 7a8a3430be15 ("amdgpu: Wrap FPU dependent functions in dc20")
+Cc: Timothy Pearson <tpearson@raptorengineering.com>
+Signed-off-by: Jeremy Cline <jcline@redhat.com>
+---
+ drivers/gpu/drm/amd/display/dc/dcn20/dcn20_resource.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/gpu/drm/amd/display/dc/dcn20/dcn20_resource.c b/drivers/gpu/drm/amd/display/dc/dcn20/dcn20_resource.c
+index e04ecf0fc0db..a4fa5bf016c1 100644
+--- a/drivers/gpu/drm/amd/display/dc/dcn20/dcn20_resource.c
++++ b/drivers/gpu/drm/amd/display/dc/dcn20/dcn20_resource.c
+@@ -3622,6 +3622,7 @@ static bool init_soc_bounding_box(struct dc *dc,
+ 	if (bb && ASICREV_IS_NAVI12_P(dc->ctx->asic_id.hw_internal_rev)) {
+ 		int i;
+ 
++		DC_FP_START();
+ 		dcn2_0_nv12_soc.sr_exit_time_us =
+ 				fixed16_to_double_to_cpu(bb->sr_exit_time_us);
+ 		dcn2_0_nv12_soc.sr_enter_plus_exit_time_us =
+@@ -3721,6 +3722,7 @@ static bool init_soc_bounding_box(struct dc *dc,
+ 			dcn2_0_nv12_soc.clock_limits[i].dram_speed_mts =
+ 					fixed16_to_double_to_cpu(bb->clock_limits[i].dram_speed_mts);
+ 		}
++		DC_FP_END();
+ 	}
+ 
+ 	if (pool->base.pp_smu) {
+@@ -3777,8 +3779,6 @@ static bool dcn20_resource_construct(
+ 	enum dml_project dml_project_version =
+ 			get_dml_project_version(ctx->asic_id.hw_internal_rev);
+ 
+-	DC_FP_START();
+-
+ 	ctx->dc_bios->regs = &bios_regs;
+ 	pool->base.funcs = &dcn20_res_pool_funcs;
+ 
+@@ -3959,8 +3959,10 @@ static bool dcn20_resource_construct(
+ 				ranges.reader_wm_sets[i].wm_inst = i;
+ 				ranges.reader_wm_sets[i].min_drain_clk_mhz = PP_SMU_WM_SET_RANGE_CLK_UNCONSTRAINED_MIN;
+ 				ranges.reader_wm_sets[i].max_drain_clk_mhz = PP_SMU_WM_SET_RANGE_CLK_UNCONSTRAINED_MAX;
++				DC_FP_START();
+ 				ranges.reader_wm_sets[i].min_fill_clk_mhz = (i > 0) ? (loaded_bb->clock_limits[i - 1].dram_speed_mts / 16) + 1 : 0;
+ 				ranges.reader_wm_sets[i].max_fill_clk_mhz = loaded_bb->clock_limits[i].dram_speed_mts / 16;
++				DC_FP_END();
+ 
+ 				ranges.num_reader_wm_sets = i + 1;
+ 			}
+@@ -4125,12 +4127,10 @@ static bool dcn20_resource_construct(
+ 		pool->base.oem_device = NULL;
+ 	}
+ 
+-	DC_FP_END();
+ 	return true;
+ 
+ create_fail:
+ 
+-	DC_FP_END();
+ 	dcn20_resource_destruct(pool);
+ 
+ 	return false;
+--

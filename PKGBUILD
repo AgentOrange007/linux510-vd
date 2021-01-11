@@ -11,10 +11,10 @@ _kernelname=-vd
 _sub=6
 #_rc=rc7
 pkgver=${_basekernel}.${_sub}
-pkgrel=1
+pkgrel=2
 _archpatch=20210107
 _prjc="r2"
-_stablequeue=b56f8a785e
+_stablequeue=f296af7083
 arch=('x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
@@ -26,7 +26,7 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     'config.x86_64' 'config.x270' 'config.zen2' 'x509.genkey' "${pkgbase}.preset"
     #
     # Prepatch from stable-queue
-    #"prepatch-${_basekernel/./}-g${_stablequeue}.patch"
+    "prepatch-${_basekernel/./}-g${_stablequeue}.patch"
     #
     # sched/core patches
     0001-sched-tip-picks-20201216.patch # use this with ProjectC
@@ -98,7 +98,8 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     # 3002-calcule-59.patch::https://raw.githubusercontent.com/hamadmarri/cacule-cpu-scheduler/master/patches/CacULE/v5.9/cacule5.9.patch
     # Cachy
     # 3003-cachy-59-r9.patch::https://raw.githubusercontent.com/hamadmarri/cacule-cpu-scheduler/master/patches/Cachy/v5.9/cachy-5.9-r9.patch
-    #
+    # MuQSS
+    # 3004-ck-muqss-510.patch
 )
 
 validpgpkeys=(
@@ -113,6 +114,7 @@ sha256sums=('7767d02c1cb5eb2a8d3c2b15a3f93e85b98baa6e9d93a3b9e3ec0e959d0a690b'
             '5f3ba0271740d5921af99d61727a1a527b922746b7f8c8bb32fc4a210147d9d2'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
+            '10d64849fcbb72f6dd8c3dfd7c677ede485ed3049769ddf148b0a50996c5c14e'
             '61874156f4a0f6ecd6bccbc298b43bb08928b178479b7cbda2414712d111dccd'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
@@ -127,9 +129,9 @@ sha256sums=('7767d02c1cb5eb2a8d3c2b15a3f93e85b98baa6e9d93a3b9e3ec0e959d0a690b'
             '4eaf4b72718637dbd6acd7c88215bf4ac7de1f6a7fc2b484ed7b565bfb8651b1'
             'e7d724ac15daf428aa1e6a03737e5c1d040892d55fda8a66897fcac9323f285c'
             '1f47d3e3956c41b47656f675a90fad9e318c7133ffe663dc0fd2c9aa0fbfeb3e'
-            'd2bf46b58008faf9a2275f4d63c480383d45ea8ec2dadc7262f0b0aaf8056aea'
+            'f58b8badfeda779d701ad015273d898df25a04a3702800dcbd1416875d916235'
             '5000348583882523ef3c36df27eabf4355e83d0605081a3bf5d4aaa28e518162'
-            '5ff4325c7c6a98cc9f66a4caf411045db28cdb0a977471179cbbbf5cc8c3a93e'
+            'f82440b92e310b5e8558e1e8bcbaf7df0c9da84c3a50b8b24eed6540ef12b29b'
             '052b51392dc7f1c24fc354d5a21d87a78489a1999850a14b543502ed2009b653'
             '068f700ef4e96ca931d56951b23ece9446e7313d7efa35df769ffa8579035d2f'
             'fa87fc20c0183e14ff06e03a558ef5315c2f65c8dee4bab1118ade80282ba399'
@@ -143,7 +145,7 @@ sha256sums=('7767d02c1cb5eb2a8d3c2b15a3f93e85b98baa6e9d93a3b9e3ec0e959d0a690b'
             '02d2c0e6b2459d4dbd6d4cecb3b269545a78b86cc9d2d3a0fda80bb3c3ee7604'
             'a231aebaa262c60f5f0151819db4b06e92986d5c81e8e0a90e7089a0ac9d454c'
             'fdb08f3fbfdd0ba71fbef5eed3f2617fd49214c40466a3c27e3bd0bf3861f90f'
-            'a3efaac75b33e2bf6fd353486798a92148b6a9235ae24e467bbdda3fde6eecea'
+            'e45dcd7e50516012c518ba6fecf5c165a56f472ca6fc99de88066c1b8581e902'
             'f86ebc85cb935e8c1dc81e64de3f6bb4dc0a714f3a1761428abe4b777c7ddbbb'
             '01ac61d81f3ae28713a81c1522f09ed64faeff9913e49c7886d2f1a15740d2c3')
 
@@ -164,8 +166,9 @@ _clang=0
 if [[ ${_clang} -eq 1 ]]; then
 	LLVMOPTS="LLVM=1 LLVM_IAS=1"
 	CLANGOPTS="CC=clang LD=ld.lld"
-	source+=('clang-lto-20201230.patch')
-	sha256sums+=('33d8144d5529ce703e9a4b5d80400c310db2711f8b77c3456ebd2132e8dfb3c3')
+	source+=('9001-objtool-fixes-jp.patch' '9002-clang-lto-20210109.patch')
+	sha256sums+=('2fdc25cd4aee97eefe4fdc073f5636c80a046e469deebd6708c1db8bc098f905'
+	'1e99bf5bce08a0cecdd03adc1b9e0a130d0f9f8efd82af54edec91ef854ae69e')
 else
 	LLVMOPTS=""
 	CLANGOPTS=""
