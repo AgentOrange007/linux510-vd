@@ -26,7 +26,7 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     'config.x86_64' 'config.x270' 'config.zen2' 'x509.genkey' "${pkgbase}.preset"
     #
     # Prepatch from stable-queue
-    "prepatch-${_basekernel/./}-g${_stablequeue}.patch"
+    #"prepatch-${_basekernel/./}-g${_stablequeue}.patch"
     #
     # sched/core patches
     0001-sched-tip-picks-20201216.patch # use this with ProjectC
@@ -114,7 +114,6 @@ sha256sums=('4cbf6e09f90f2ae7160432c884d5a2aeb9d33a07ca7f50eb7d80f427706ffabe'
             '5f3ba0271740d5921af99d61727a1a527b922746b7f8c8bb32fc4a210147d9d2'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
-            '10d64849fcbb72f6dd8c3dfd7c677ede485ed3049769ddf148b0a50996c5c14e'
             '61874156f4a0f6ecd6bccbc298b43bb08928b178479b7cbda2414712d111dccd'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
@@ -160,17 +159,20 @@ _key="$HOME/build/keys/vd510-kernel-key.pem"
 _pubkey="$HOME/build/keys/vd510-kernel-pubkey.pem"
 
 # custom clang path
-# export PATH=/opt/clang11/bin:$PATH
+# export PATH=/opt/clang12/bin:$PATH
 _clang=0
 
 if [[ ${_clang} -eq 1 ]]; then
 	LLVMOPTS="LLVM=1 LLVM_IAS=1"
 	CLANGOPTS="CC=clang LD=ld.lld"
-	source+=('9001-objtool-fixes-jp.patch' '9002-clang-lto-20210109.patch'
-	'9003-clang-pgo-20210111.patch')
+	source+=('9001-objtool-fixes-jp.patch'
+	'9002-clang-lto-20210112.patch'
+	#'9003-clang-pgo-v4.patch'
+	)
 	sha256sums+=('2fdc25cd4aee97eefe4fdc073f5636c80a046e469deebd6708c1db8bc098f905'
-	'1e99bf5bce08a0cecdd03adc1b9e0a130d0f9f8efd82af54edec91ef854ae69e'
-	'5a1ee764a4a88ba95b8d14d2ac7469bc0510a65829c4ce7471ba25c0c2b92bc2')
+	'dd813a021506be286818b5c1786c75f8993c0056ea9b964eb950ee59cf3d877a'
+	#'853d1875dca40a4bcd5f4b8420989cb9599c0c63c8b363a5996f76d3cad7b58c'
+	)
 else
 	LLVMOPTS=""
 	CLANGOPTS=""
@@ -242,7 +244,7 @@ build() {
   cd "${srcdir}/linux-${pkgver}"
 
   # build!
-  make $LLVMOPTS $MAKEFLAGS LOCALVERSION= bzImage modules
+  make $LLVMOPTS LOCALVERSION= bzImage modules
   make $CLANGOPTS -C tools/bootconfig
 }
 
@@ -276,7 +278,7 @@ package_linux510-vd() {
     install -Dm644 /dev/stdin "${pkgdir}/usr/lib/modules/${_extramodules}/version"
 
   echo -e "\n${TB}* INSTALLING MODULES${TN}"
-  make $CLANGOPTS $MAKEFLAGS LOCALVERSION= INSTALL_MOD_PATH="${pkgdir}/usr" INSTALL_MOD_STRIP=1 modules_install
+  make $CLANGOPTS LOCALVERSION= INSTALL_MOD_PATH="${pkgdir}/usr" INSTALL_MOD_STRIP=1 modules_install
 
   # remove build and source links
   rm $modulesdir/source

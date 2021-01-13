@@ -1,5 +1,6 @@
-From patchwork Tue Jan 12 05:31:13 2021
-Subject: [PATCH v3] pgo: add clang's Profile Guided Optimization
+From patchwork Wed Jan 13 06:19:58 2021
+Date: Tue, 12 Jan 2021 22:19:58 -0800
+Subject: [PATCH v4] pgo: add clang's Profile Guided Optimization
  infrastructure
 From: Bill Wendling <morbo@google.com>
 To: Jonathan Corbet <corbet@lwn.net>,
@@ -11,7 +12,7 @@ Cc: Nathan Chancellor <natechancellor@gmail.com>,
         Nick Desaulniers <ndesaulniers@google.com>,
         Sami Tolvanen <samitolvanen@google.com>,
         Bill Wendling <morbo@google.com>
-X-Mailing-List: linux-kbuild@vger.kernel.org
+X-Mailing-List: linux-kernel@vger.kernel.org
 
 From: Sami Tolvanen <samitolvanen@google.com>
 
@@ -36,50 +37,29 @@ This initial submission is restricted to x86, as that's the platform we
 know works. This restriction can be lifted once other platforms have
 been verified to work with PGO.
 
-Note that this method of profiling the kernel is clang-native and isn't
-compatible with clang's gcov support in kernel/gcov.
+Note that this method of profiling the kernel is clang-native, unlike
+the clang support in kernel/gcov.
 
 [1] https://clang.llvm.org/docs/UsersManual.html#profile-guided-optimization
 
 Signed-off-by: Sami Tolvanen <samitolvanen@google.com>
 Co-developed-by: Bill Wendling <morbo@google.com>
 Signed-off-by: Bill Wendling <morbo@google.com>
+Change-Id: Ic78e69c682286d3a44c4549a0138578c98138b77
 ---
 v2: - Added "__llvm_profile_instrument_memop" based on Nathan Chancellor's
       testing.
-    - Corrected documentation, re PGO flags when using LTO, based on Fāng-ruì
-      Sòng's comments.
+    - Corrected documentation, re PGO flags when using LTO, based on Fangrui
+      Song's comments.
 v3: - Added change log section based on Sedat Dilek's comments.
+v4: - Remove non-x86 Makfile changes and se "hweight64" instead of using our
+      own popcount implementation, based on Nick Desaulniers's comment.
 ---
  Documentation/dev-tools/index.rst     |   1 +
  Documentation/dev-tools/pgo.rst       | 127 +++++++++
  MAINTAINERS                           |   9 +
  Makefile                              |   3 +
  arch/Kconfig                          |   1 +
- arch/arm/boot/bootp/Makefile          |   1 +
- arch/arm/boot/compressed/Makefile     |   1 +
- arch/arm/vdso/Makefile                |   3 +-
- arch/arm64/kernel/vdso/Makefile       |   3 +-
- arch/arm64/kvm/hyp/nvhe/Makefile      |   1 +
- arch/mips/boot/compressed/Makefile    |   1 +
- arch/mips/vdso/Makefile               |   1 +
- arch/nds32/kernel/vdso/Makefile       |   4 +-
- arch/parisc/boot/compressed/Makefile  |   1 +
- arch/powerpc/kernel/Makefile          |   6 +-
- arch/powerpc/kernel/trace/Makefile    |   3 +-
- arch/powerpc/kernel/vdso32/Makefile   |   1 +
- arch/powerpc/kernel/vdso64/Makefile   |   1 +
- arch/powerpc/kexec/Makefile           |   3 +-
- arch/powerpc/xmon/Makefile            |   1 +
- arch/riscv/kernel/vdso/Makefile       |   3 +-
- arch/s390/boot/Makefile               |   1 +
- arch/s390/boot/compressed/Makefile    |   1 +
- arch/s390/kernel/Makefile             |   1 +
- arch/s390/kernel/vdso64/Makefile      |   3 +-
- arch/s390/purgatory/Makefile          |   1 +
- arch/sh/boot/compressed/Makefile      |   1 +
- arch/sh/mm/Makefile                   |   1 +
- arch/sparc/vdso/Makefile              |   1 +
  arch/x86/Kconfig                      |   1 +
  arch/x86/boot/Makefile                |   1 +
  arch/x86/boot/compressed/Makefile     |   1 +
@@ -90,16 +70,15 @@ v3: - Added change log section based on Sedat Dilek's comments.
  arch/x86/realmode/rm/Makefile         |   1 +
  arch/x86/um/vdso/Makefile             |   1 +
  drivers/firmware/efi/libstub/Makefile |   1 +
- drivers/s390/char/Makefile            |   1 +
  include/asm-generic/vmlinux.lds.h     |  44 +++
  kernel/Makefile                       |   1 +
  kernel/pgo/Kconfig                    |  34 +++
  kernel/pgo/Makefile                   |   5 +
  kernel/pgo/fs.c                       | 382 ++++++++++++++++++++++++++
- kernel/pgo/instrument.c               | 188 +++++++++++++
+ kernel/pgo/instrument.c               | 185 +++++++++++++
  kernel/pgo/pgo.h                      | 206 ++++++++++++++
  scripts/Makefile.lib                  |  10 +
- 48 files changed, 1058 insertions(+), 9 deletions(-)
+ 23 files changed, 1019 insertions(+)
  create mode 100644 Documentation/dev-tools/pgo.rst
  create mode 100644 kernel/pgo/Kconfig
  create mode 100644 kernel/pgo/Makefile
@@ -121,7 +100,7 @@ index f7809c7b1ba9e..8d6418e858062 100644
  .. only::  subproject and html
 diff --git a/Documentation/dev-tools/pgo.rst b/Documentation/dev-tools/pgo.rst
 new file mode 100644
-index 0000000000000..da0e654ae7078
+index 0000000000000..b7f11d8405b73
 --- /dev/null
 +++ b/Documentation/dev-tools/pgo.rst
 @@ -0,0 +1,127 @@
@@ -227,7 +206,7 @@ index 0000000000000..da0e654ae7078
 +
 +   .. code-block:: sh
 +
-+      echo 1 > /sys/kernel/debug/pgo/reset
++      $ echo 1 > /sys/kernel/debug/pgo/reset
 +
 +3) Run the load tests.
 +
@@ -235,7 +214,7 @@ index 0000000000000..da0e654ae7078
 +
 +   .. code-block:: sh
 +
-+      cp -a /sys/kernel/debug/pgo/profraw /tmp/vmlinux.profraw
++      $ cp -a /sys/kernel/debug/pgo/profraw /tmp/vmlinux.profraw
 +
 +5) (Optional) Download the raw profile data to the HOST machine.
 +
@@ -243,7 +222,7 @@ index 0000000000000..da0e654ae7078
 +
 +   .. code-block:: sh
 +
-+      llvm-profdata merge --output=vmlinux.profdata vmlinux.profraw
++      $ llvm-profdata merge --output=vmlinux.profdata vmlinux.profraw
 +
 +   Note that multiple raw profile data files can be merged during this step.
 +
@@ -251,7 +230,7 @@ index 0000000000000..da0e654ae7078
 +
 +   .. code-block:: sh
 +
-+      make LLVM=1 KCFLAGS=-fprofile-use=vmlinux.profdata ...
++      $ make LLVM=1 KCFLAGS=-fprofile-use=vmlinux.profdata ...
 diff --git a/MAINTAINERS b/MAINTAINERS
 index cc1e6a5ee6e67..1b979da316fa4 100644
 --- a/MAINTAINERS
@@ -298,326 +277,6 @@ index 24862d15f3a36..f39d3991f6bfe 100644
  
  source "scripts/gcc-plugins/Kconfig"
  
-diff --git a/arch/arm/boot/bootp/Makefile b/arch/arm/boot/bootp/Makefile
-index 981a8d03f064c..523bd58df0a4b 100644
---- a/arch/arm/boot/bootp/Makefile
-+++ b/arch/arm/boot/bootp/Makefile
-@@ -7,6 +7,7 @@
- #
- 
- GCOV_PROFILE	:= n
-+PGO_PROFILE	:= n
- 
- LDFLAGS_bootp	:= --no-undefined -X \
- 		 --defsym initrd_phys=$(INITRD_PHYS) \
-diff --git a/arch/arm/boot/compressed/Makefile b/arch/arm/boot/compressed/Makefile
-index fb521efcc6c20..5fd0fd85fc0e5 100644
---- a/arch/arm/boot/compressed/Makefile
-+++ b/arch/arm/boot/compressed/Makefile
-@@ -24,6 +24,7 @@ OBJS		+= hyp-stub.o
- endif
- 
- GCOV_PROFILE		:= n
-+PGO_PROFILE		:= n
- 
- # Prevents link failures: __sanitizer_cov_trace_pc() is not linked in.
- KCOV_INSTRUMENT		:= n
-diff --git a/arch/arm/vdso/Makefile b/arch/arm/vdso/Makefile
-index b558bee0e1f6b..11f6ce4b48b56 100644
---- a/arch/arm/vdso/Makefile
-+++ b/arch/arm/vdso/Makefile
-@@ -36,8 +36,9 @@ else
- CFLAGS_vgettimeofday.o = -O2 -include $(c-gettimeofday-y)
- endif
- 
--# Disable gcov profiling for VDSO code
-+# Disable gcov and PGO profiling for VDSO code
- GCOV_PROFILE := n
-+PGO_PROFILE := n
- 
- # Prevents link failures: __sanitizer_cov_trace_pc() is not linked in.
- KCOV_INSTRUMENT := n
-diff --git a/arch/arm64/kernel/vdso/Makefile b/arch/arm64/kernel/vdso/Makefile
-index cd9c3fa25902f..d48fc0df07020 100644
---- a/arch/arm64/kernel/vdso/Makefile
-+++ b/arch/arm64/kernel/vdso/Makefile
-@@ -41,8 +41,9 @@ ifneq ($(c-gettimeofday-y),)
-   CFLAGS_vgettimeofday.o += -include $(c-gettimeofday-y)
- endif
- 
--# Disable gcov profiling for VDSO code
-+# Disable gcov and PGO profiling for VDSO code
- GCOV_PROFILE := n
-+PGO_PROFILE := n
- 
- obj-y += vdso.o
- targets += vdso.lds
-diff --git a/arch/arm64/kvm/hyp/nvhe/Makefile b/arch/arm64/kvm/hyp/nvhe/Makefile
-index 1f1e351c5fe2b..ad128ecdbfbdf 100644
---- a/arch/arm64/kvm/hyp/nvhe/Makefile
-+++ b/arch/arm64/kvm/hyp/nvhe/Makefile
-@@ -60,6 +60,7 @@ KBUILD_CFLAGS := $(filter-out $(CC_FLAGS_FTRACE) $(CC_FLAGS_SCS), $(KBUILD_CFLAG
- # compiler instrumentation that inserts callbacks or checks into the code may
- # cause crashes. Just disable it.
- GCOV_PROFILE	:= n
-+PGO_PROFILE	:= n
- KASAN_SANITIZE	:= n
- UBSAN_SANITIZE	:= n
- KCOV_INSTRUMENT	:= n
-diff --git a/arch/mips/boot/compressed/Makefile b/arch/mips/boot/compressed/Makefile
-index 47cd9dc7454af..0855ea12f2c7f 100644
---- a/arch/mips/boot/compressed/Makefile
-+++ b/arch/mips/boot/compressed/Makefile
-@@ -37,6 +37,7 @@ KBUILD_AFLAGS := $(KBUILD_AFLAGS) -D__ASSEMBLY__ \
- 
- # Prevents link failures: __sanitizer_cov_trace_pc() is not linked in.
- KCOV_INSTRUMENT		:= n
-+PGO_PROFILE := n
- 
- # decompressor objects (linked with vmlinuz)
- vmlinuzobjs-y := $(obj)/head.o $(obj)/decompress.o $(obj)/string.o
-diff --git a/arch/mips/vdso/Makefile b/arch/mips/vdso/Makefile
-index 5810cc12bc1d9..d7eb64de35eae 100644
---- a/arch/mips/vdso/Makefile
-+++ b/arch/mips/vdso/Makefile
-@@ -66,6 +66,7 @@ ldflags-y := -Bsymbolic --no-undefined -soname=linux-vdso.so.1 \
- CFLAGS_REMOVE_vdso.o = -pg
- 
- GCOV_PROFILE := n
-+PGO_PROFILE := n
- UBSAN_SANITIZE := n
- KCOV_INSTRUMENT := n
- 
-diff --git a/arch/nds32/kernel/vdso/Makefile b/arch/nds32/kernel/vdso/Makefile
-index 55df25ef00578..f2b53ee2124b7 100644
---- a/arch/nds32/kernel/vdso/Makefile
-+++ b/arch/nds32/kernel/vdso/Makefile
-@@ -15,9 +15,9 @@ obj-vdso := $(addprefix $(obj)/, $(obj-vdso))
- ccflags-y := -shared -fno-common -fno-builtin -nostdlib -fPIC -Wl,-shared -g \
- 	-Wl,-soname=linux-vdso.so.1 -Wl,--hash-style=sysv
- 
--# Disable gcov profiling for VDSO code
-+# Disable gcov and PGO profiling for VDSO code
- GCOV_PROFILE := n
--
-+PGO_PROFILE := n
- 
- obj-y += vdso.o
- targets += vdso.lds
-diff --git a/arch/parisc/boot/compressed/Makefile b/arch/parisc/boot/compressed/Makefile
-index dff4536875305..5cf93a67f7da7 100644
---- a/arch/parisc/boot/compressed/Makefile
-+++ b/arch/parisc/boot/compressed/Makefile
-@@ -7,6 +7,7 @@
- 
- KCOV_INSTRUMENT := n
- GCOV_PROFILE := n
-+PGO_PROFILE := n
- UBSAN_SANITIZE := n
- 
- targets := vmlinux.lds vmlinux vmlinux.bin vmlinux.bin.gz vmlinux.bin.bz2
-diff --git a/arch/powerpc/kernel/Makefile b/arch/powerpc/kernel/Makefile
-index fe2ef598e2ead..c642c046660d7 100644
---- a/arch/powerpc/kernel/Makefile
-+++ b/arch/powerpc/kernel/Makefile
-@@ -153,17 +153,21 @@ endif
- obj-$(CONFIG_PPC_SECURE_BOOT)	+= secure_boot.o ima_arch.o secvar-ops.o
- obj-$(CONFIG_PPC_SECVAR_SYSFS)	+= secvar-sysfs.o
- 
--# Disable GCOV, KCOV & sanitizers in odd or sensitive code
-+# Disable GCOV, PGO, KCOV & sanitizers in odd or sensitive code
- GCOV_PROFILE_prom_init.o := n
-+PGO_PROFILE_prom_init.o := n
- KCOV_INSTRUMENT_prom_init.o := n
- UBSAN_SANITIZE_prom_init.o := n
- GCOV_PROFILE_kprobes.o := n
-+PGO_PROFILE_kprobes.o := n
- KCOV_INSTRUMENT_kprobes.o := n
- UBSAN_SANITIZE_kprobes.o := n
- GCOV_PROFILE_kprobes-ftrace.o := n
-+PGO_PROFILE_kprobes-ftrace.o := n
- KCOV_INSTRUMENT_kprobes-ftrace.o := n
- UBSAN_SANITIZE_kprobes-ftrace.o := n
- GCOV_PROFILE_syscall_64.o := n
-+PGO_PROFILE_syscall_64.o := n
- KCOV_INSTRUMENT_syscall_64.o := n
- UBSAN_SANITIZE_syscall_64.o := n
- UBSAN_SANITIZE_vdso.o := n
-diff --git a/arch/powerpc/kernel/trace/Makefile b/arch/powerpc/kernel/trace/Makefile
-index 858503775c583..7d72ae7d4f8c6 100644
---- a/arch/powerpc/kernel/trace/Makefile
-+++ b/arch/powerpc/kernel/trace/Makefile
-@@ -23,7 +23,8 @@ obj-$(CONFIG_TRACING)			+= trace_clock.o
- obj-$(CONFIG_PPC64)			+= $(obj64-y)
- obj-$(CONFIG_PPC32)			+= $(obj32-y)
- 
--# Disable GCOV, KCOV & sanitizers in odd or sensitive code
-+# Disable GCOV, PGO, KCOV & sanitizers in odd or sensitive code
- GCOV_PROFILE_ftrace.o := n
-+PGO_PROFILE_ftrace.o := n
- KCOV_INSTRUMENT_ftrace.o := n
- UBSAN_SANITIZE_ftrace.o := n
-diff --git a/arch/powerpc/kernel/vdso32/Makefile b/arch/powerpc/kernel/vdso32/Makefile
-index 9cb6f524854b9..655e159975a04 100644
---- a/arch/powerpc/kernel/vdso32/Makefile
-+++ b/arch/powerpc/kernel/vdso32/Makefile
-@@ -34,6 +34,7 @@ targets := $(obj-vdso32) vdso32.so.dbg
- obj-vdso32 := $(addprefix $(obj)/, $(obj-vdso32))
- 
- GCOV_PROFILE := n
-+PGO_PROFILE := n
- KCOV_INSTRUMENT := n
- UBSAN_SANITIZE := n
- KASAN_SANITIZE := n
-diff --git a/arch/powerpc/kernel/vdso64/Makefile b/arch/powerpc/kernel/vdso64/Makefile
-index bf363ff371521..12c286f5afc16 100644
---- a/arch/powerpc/kernel/vdso64/Makefile
-+++ b/arch/powerpc/kernel/vdso64/Makefile
-@@ -21,6 +21,7 @@ targets := $(obj-vdso64) vdso64.so.dbg
- obj-vdso64 := $(addprefix $(obj)/, $(obj-vdso64))
- 
- GCOV_PROFILE := n
-+PGO_PROFILE := n
- KCOV_INSTRUMENT := n
- UBSAN_SANITIZE := n
- KASAN_SANITIZE := n
-diff --git a/arch/powerpc/kexec/Makefile b/arch/powerpc/kexec/Makefile
-index 4aff6846c7726..1c7f65e3cb969 100644
---- a/arch/powerpc/kexec/Makefile
-+++ b/arch/powerpc/kexec/Makefile
-@@ -16,7 +16,8 @@ endif
- endif
- 
- 
--# Disable GCOV, KCOV & sanitizers in odd or sensitive code
-+# Disable GCOV, PGO, KCOV & sanitizers in odd or sensitive code
- GCOV_PROFILE_core_$(BITS).o := n
-+PGO_PROFILE_core_$(BITS).o := n
- KCOV_INSTRUMENT_core_$(BITS).o := n
- UBSAN_SANITIZE_core_$(BITS).o := n
-diff --git a/arch/powerpc/xmon/Makefile b/arch/powerpc/xmon/Makefile
-index eb25d7554ffd1..7aff80d18b44b 100644
---- a/arch/powerpc/xmon/Makefile
-+++ b/arch/powerpc/xmon/Makefile
-@@ -2,6 +2,7 @@
- # Makefile for xmon
- 
- GCOV_PROFILE := n
-+PGO_PROFILE := n
- KCOV_INSTRUMENT := n
- UBSAN_SANITIZE := n
- KASAN_SANITIZE := n
-diff --git a/arch/riscv/kernel/vdso/Makefile b/arch/riscv/kernel/vdso/Makefile
-index 0cfd6da784f84..882340dc3c647 100644
---- a/arch/riscv/kernel/vdso/Makefile
-+++ b/arch/riscv/kernel/vdso/Makefile
-@@ -32,8 +32,9 @@ CPPFLAGS_vdso.lds += -P -C -U$(ARCH)
- # Disable -pg to prevent insert call site
- CFLAGS_REMOVE_vgettimeofday.o = $(CC_FLAGS_FTRACE) -Os
- 
--# Disable gcov profiling for VDSO code
-+# Disable gcov and PGO profiling for VDSO code
- GCOV_PROFILE := n
-+PGO_PROFILE := n
- KCOV_INSTRUMENT := n
- 
- # Force dependency
-diff --git a/arch/s390/boot/Makefile b/arch/s390/boot/Makefile
-index 41a64b8dce252..bee4a32040e79 100644
---- a/arch/s390/boot/Makefile
-+++ b/arch/s390/boot/Makefile
-@@ -5,6 +5,7 @@
- 
- KCOV_INSTRUMENT := n
- GCOV_PROFILE := n
-+PGO_PROFILE := n
- UBSAN_SANITIZE := n
- KASAN_SANITIZE := n
- 
-diff --git a/arch/s390/boot/compressed/Makefile b/arch/s390/boot/compressed/Makefile
-index de18dab518bb6..c3ab883e8425a 100644
---- a/arch/s390/boot/compressed/Makefile
-+++ b/arch/s390/boot/compressed/Makefile
-@@ -7,6 +7,7 @@
- 
- KCOV_INSTRUMENT := n
- GCOV_PROFILE := n
-+PGO_PROFILE := n
- UBSAN_SANITIZE := n
- KASAN_SANITIZE := n
- 
-diff --git a/arch/s390/kernel/Makefile b/arch/s390/kernel/Makefile
-index dd73b7f074237..bd857aacad794 100644
---- a/arch/s390/kernel/Makefile
-+++ b/arch/s390/kernel/Makefile
-@@ -14,6 +14,7 @@ CFLAGS_REMOVE_early.o		= $(CC_FLAGS_FTRACE)
- endif
- 
- GCOV_PROFILE_early.o		:= n
-+PGO_PROFILE_early.o		:= n
- KCOV_INSTRUMENT_early.o		:= n
- UBSAN_SANITIZE_early.o		:= n
- KASAN_SANITIZE_ipl.o		:= n
-diff --git a/arch/s390/kernel/vdso64/Makefile b/arch/s390/kernel/vdso64/Makefile
-index a6e0fb6b91d6c..d7c43b7c1db96 100644
---- a/arch/s390/kernel/vdso64/Makefile
-+++ b/arch/s390/kernel/vdso64/Makefile
-@@ -35,8 +35,9 @@ obj-y += vdso64_wrapper.o
- targets += vdso64.lds
- CPPFLAGS_vdso64.lds += -P -C -U$(ARCH)
- 
--# Disable gcov profiling, ubsan and kasan for VDSO code
-+# Disable gcov and PGO profiling, ubsan and kasan for VDSO code
- GCOV_PROFILE := n
-+PGO_PROFILE := n
- UBSAN_SANITIZE := n
- KASAN_SANITIZE := n
- 
-diff --git a/arch/s390/purgatory/Makefile b/arch/s390/purgatory/Makefile
-index c57f8c40e9926..9aef584e98466 100644
---- a/arch/s390/purgatory/Makefile
-+++ b/arch/s390/purgatory/Makefile
-@@ -17,6 +17,7 @@ $(obj)/mem.o: $(srctree)/arch/s390/lib/mem.S FORCE
- 
- KCOV_INSTRUMENT := n
- GCOV_PROFILE := n
-+PGO_PROFILE := n
- UBSAN_SANITIZE := n
- KASAN_SANITIZE := n
- 
-diff --git a/arch/sh/boot/compressed/Makefile b/arch/sh/boot/compressed/Makefile
-index 589d2d8a573db..ae19aeeb3964c 100644
---- a/arch/sh/boot/compressed/Makefile
-+++ b/arch/sh/boot/compressed/Makefile
-@@ -13,6 +13,7 @@ targets		:= vmlinux vmlinux.bin vmlinux.bin.gz \
- OBJECTS = $(obj)/head_32.o $(obj)/misc.o $(obj)/cache.o
- 
- GCOV_PROFILE := n
-+PGO_PROFILE := n
- 
- #
- # IMAGE_OFFSET is the load offset of the compression loader
-diff --git a/arch/sh/mm/Makefile b/arch/sh/mm/Makefile
-index f69ddc70b1465..ea2782c631f43 100644
---- a/arch/sh/mm/Makefile
-+++ b/arch/sh/mm/Makefile
-@@ -43,3 +43,4 @@ obj-$(CONFIG_UNCACHED_MAPPING)	+= uncached.o
- obj-$(CONFIG_HAVE_SRAM_POOL)	+= sram.o
- 
- GCOV_PROFILE_pmb.o := n
-+PGO_PROFILE_pmb.o := n
-diff --git a/arch/sparc/vdso/Makefile b/arch/sparc/vdso/Makefile
-index c5e1545bc5cf9..ab5f3783fe199 100644
---- a/arch/sparc/vdso/Makefile
-+++ b/arch/sparc/vdso/Makefile
-@@ -115,6 +115,7 @@ quiet_cmd_vdso = VDSO    $@
- 
- VDSO_LDFLAGS = -shared --hash-style=both --build-id=sha1 -Bsymbolic
- GCOV_PROFILE := n
-+PGO_PROFILE := n
- 
- #
- # Install the unstripped copies of vdso*.so.  If our toolchain supports
 diff --git a/arch/x86/Kconfig b/arch/x86/Kconfig
 index 21f851179ff08..36305ea61dc09 100644
 --- a/arch/x86/Kconfig
@@ -737,18 +396,6 @@ index 8a94388e38b33..2d81623b33f29 100644
  # Sanitizer runtimes are unavailable and cannot be linked here.
  KASAN_SANITIZE			:= n
  KCSAN_SANITIZE			:= n
-diff --git a/drivers/s390/char/Makefile b/drivers/s390/char/Makefile
-index c6fdb81a068a6..bf6c5db5da1fc 100644
---- a/drivers/s390/char/Makefile
-+++ b/drivers/s390/char/Makefile
-@@ -9,6 +9,7 @@ CFLAGS_REMOVE_sclp_early_core.o	= $(CC_FLAGS_FTRACE)
- endif
- 
- GCOV_PROFILE_sclp_early_core.o		:= n
-+PGO_PROFILE_sclp_early_core.o		:= n
- KCOV_INSTRUMENT_sclp_early_core.o	:= n
- UBSAN_SANITIZE_sclp_early_core.o	:= n
- KASAN_SANITIZE_sclp_early_core.o	:= n
 diff --git a/include/asm-generic/vmlinux.lds.h b/include/asm-generic/vmlinux.lds.h
 index b2b3d81b1535a..3a591bb18c5fb 100644
 --- a/include/asm-generic/vmlinux.lds.h
@@ -1264,10 +911,10 @@ index 0000000000000..790a8df037bfc
 +module_exit(pgo_exit);
 diff --git a/kernel/pgo/instrument.c b/kernel/pgo/instrument.c
 new file mode 100644
-index 0000000000000..465615b7f8735
+index 0000000000000..6084ff0652e85
 --- /dev/null
 +++ b/kernel/pgo/instrument.c
-@@ -0,0 +1,188 @@
+@@ -0,0 +1,185 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Copyright (C) 2019 Google, Inc.
@@ -1288,6 +935,7 @@ index 0000000000000..465615b7f8735
 +
 +#define pr_fmt(fmt)	"pgo: " fmt
 +
++#include <linux/bitops.h>
 +#include <linux/kernel.h>
 +#include <linux/export.h>
 +#include <linux/spinlock.h>
@@ -1339,6 +987,7 @@ index 0000000000000..465615b7f8735
 + * Records the target value for the CounterIndex if not seen before. Otherwise,
 + * increments the counter associated w/ the target value.
 + */
++void __llvm_profile_instrument_target(u64 target_value, void *data, u32 index);
 +void __llvm_profile_instrument_target(u64 target_value, void *data, u32 index)
 +{
 +	struct llvm_prf_data *p = (struct llvm_prf_data *)data;
@@ -1404,6 +1053,9 @@ index 0000000000000..465615b7f8735
 +/* Counts the number of times a range of targets values are seen. */
 +void __llvm_profile_instrument_range(u64 target_value, void *data,
 +				     u32 index, s64 precise_start,
++				     s64 precise_last, s64 large_value);
++void __llvm_profile_instrument_range(u64 target_value, void *data,
++				     u32 index, s64 precise_start,
 +				     s64 precise_last, s64 large_value)
 +{
 +	if (large_value != S64_MIN && (s64)target_value >= large_value)
@@ -1416,16 +1068,6 @@ index 0000000000000..465615b7f8735
 +}
 +EXPORT_SYMBOL(__llvm_profile_instrument_range);
 +
-+static inline int inst_prof_popcount(unsigned long long value)
-+{
-+	value = value - ((value >> 1) & 0x5555555555555555ULL);
-+	value = (value & 0x3333333333333333ULL) +
-+		((value >> 2) & 0x3333333333333333ULL);
-+	value = (value + (value >> 4)) & 0x0F0F0F0F0F0F0F0FULL;
-+
-+	return (int)((unsigned long long)(value * 0x0101010101010101ULL) >> 56);
-+}
-+
 +static u64 inst_prof_get_range_rep_value(u64 value)
 +{
 +	if (value <= 8)
@@ -1434,7 +1076,7 @@ index 0000000000000..465615b7f8735
 +	else if (value >= 513)
 +		/* The last range is mapped to its lowest value. */
 +		return 513;
-+	else if (inst_prof_popcount(value) == 1)
++	else if (hweight64(value) == 1)
 +		/* If it's a power of two, use it as is. */
 +		return value;
 +
@@ -1446,6 +1088,8 @@ index 0000000000000..465615b7f8735
 + * The target values are partitioned into multiple ranges. The range spec is
 + * defined in compiler-rt/include/profile/InstrProfData.inc.
 + */
++void __llvm_profile_instrument_memop(u64 target_value, void *data,
++				     u32 counter_index);
 +void __llvm_profile_instrument_memop(u64 target_value, void *data,
 +				     u32 counter_index)
 +{
