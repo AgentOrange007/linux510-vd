@@ -8,10 +8,10 @@ pkgbase=linux510-vd
 pkgname=('linux510-vd' 'linux510-vd-headers')
 _basekernel=5.10
 _kernelname=-vd
-_sub=6
+_sub=7
 #_rc=rc7
 pkgver=${_basekernel}.${_sub}
-pkgrel=2
+pkgrel=1
 _archpatch=20210107
 _prjc="r2"
 _stablequeue=f296af7083
@@ -107,7 +107,7 @@ validpgpkeys=(
   '647F28654894E3BD457199BE38DBBDC86092693E'  # Greg Kroah-Hartman
 )
 
-sha256sums=('7767d02c1cb5eb2a8d3c2b15a3f93e85b98baa6e9d93a3b9e3ec0e959d0a690b'
+sha256sums=('4cbf6e09f90f2ae7160432c884d5a2aeb9d33a07ca7f50eb7d80f427706ffabe'
             'SKIP'
             '0c710c857a24b6591c2d813b3bd5968983cbbf770f2fc5f9a8fdeda9e69fd53a'
             '0ea554a28cd9f2928ba83dd599b1203555d68ceb6070ad73e31429fb466a9f22'
