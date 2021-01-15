@@ -1372,11 +1372,11 @@ index 67e55c5479b8e..e8347461c8ddd 100644
 2.27.0
 
 From foo@baz Fri Jan 15 08:19:35 AM CET 2021
-From: "Jouni K. Sepp�nen" <jks@iki.fi>
+From: "Jouni K. Seppänen" <jks@iki.fi>
 Date: Tue, 5 Jan 2021 06:52:49 +0200
 Subject: net: cdc_ncm: correct overhead in delayed_ndp_size
 
-From: "Jouni K. Sepp�nen" <jks@iki.fi>
+From: "Jouni K. Seppänen" <jks@iki.fi>
 
 [ Upstream commit 7a68d725e4ea384977445e0bcaed3d7de83ab5b3 ]
 
@@ -3830,3 +3830,3089 @@ Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
  
  	if (i >= MLX5_MAX_PORTS)
  		ldev->flags |= MLX5_LAG_FLAG_READY;
+From 6998ff4e21619d47ebf4f5eb4cafa65c65856221 Mon Sep 17 00:00:00 2001
+From: James Smart <james.smart@broadcom.com>
+Date: Thu, 19 Nov 2020 12:34:07 -0800
+Subject: scsi: lpfc: Fix variable 'vport' set but not used in lpfc_sli4_abts_err_handler()
+
+From: James Smart <james.smart@broadcom.com>
+
+commit 6998ff4e21619d47ebf4f5eb4cafa65c65856221 upstream.
+
+Remove vport variable that is assigned but not used in
+lpfc_sli4_abts_err_handler().
+
+Link: https://lore.kernel.org/r/20201119203407.121913-1-james.smart@broadcom.com
+Fixes: e7dab164a9aa ("scsi: lpfc: Fix scheduling call while in softirq context in lpfc_unreg_rpi")
+Reported-by: kernel test robot <lkp@intel.com>
+Signed-off-by: James Smart <james.smart@broadcom.com>
+Signed-off-by: Martin K. Petersen <martin.petersen@oracle.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/scsi/lpfc/lpfc_sli.c |    2 --
+ 1 file changed, 2 deletions(-)
+
+--- a/drivers/scsi/lpfc/lpfc_sli.c
++++ b/drivers/scsi/lpfc/lpfc_sli.c
+@@ -10459,7 +10459,6 @@ lpfc_sli4_abts_err_handler(struct lpfc_h
+ 			   struct lpfc_nodelist *ndlp,
+ 			   struct sli4_wcqe_xri_aborted *axri)
+ {
+-	struct lpfc_vport *vport;
+ 	uint32_t ext_status = 0;
+ 
+ 	if (!ndlp || !NLP_CHK_NODE_ACT(ndlp)) {
+@@ -10469,7 +10468,6 @@ lpfc_sli4_abts_err_handler(struct lpfc_h
+ 		return;
+ 	}
+ 
+-	vport = ndlp->vport;
+ 	lpfc_printf_log(phba, KERN_WARNING, LOG_SLI,
+ 			"3116 Port generated FCP XRI ABORT event on "
+ 			"vpi %d rpi %d xri x%x status 0x%x parameter x%x\n",
+From 8f56bc4dc1011be6e2a53198b615fdc588b4ef6a Mon Sep 17 00:00:00 2001
+From: Shannon Nelson <snelson@pensando.io>
+Date: Thu, 12 Nov 2020 10:22:01 -0800
+Subject: ionic: start queues before announcing link up
+
+From: Shannon Nelson <snelson@pensando.io>
+
+commit 8f56bc4dc1011be6e2a53198b615fdc588b4ef6a upstream.
+
+Change the order of operations in the link_up handling to be
+sure that the queues are up and ready before we announce that
+the link is up.
+
+Signed-off-by: Shannon Nelson <snelson@pensando.io>
+Reviewed-by: Saeed Mahameed <saeedm@nvidia.com>
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/net/ethernet/pensando/ionic/ionic_lif.c |   12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+--- a/drivers/net/ethernet/pensando/ionic/ionic_lif.c
++++ b/drivers/net/ethernet/pensando/ionic/ionic_lif.c
+@@ -123,6 +123,12 @@ static void ionic_link_status_check(stru
+ 	link_up = link_status == IONIC_PORT_OPER_STATUS_UP;
+ 
+ 	if (link_up) {
++		if (lif->netdev->flags & IFF_UP && netif_running(lif->netdev)) {
++			mutex_lock(&lif->queue_lock);
++			ionic_start_queues(lif);
++			mutex_unlock(&lif->queue_lock);
++		}
++
+ 		if (!netif_carrier_ok(netdev)) {
+ 			u32 link_speed;
+ 
+@@ -132,12 +138,6 @@ static void ionic_link_status_check(stru
+ 				    link_speed / 1000);
+ 			netif_carrier_on(netdev);
+ 		}
+-
+-		if (lif->netdev->flags & IFF_UP && netif_running(lif->netdev)) {
+-			mutex_lock(&lif->queue_lock);
+-			ionic_start_queues(lif);
+-			mutex_unlock(&lif->queue_lock);
+-		}
+ 	} else {
+ 		if (netif_carrier_ok(netdev)) {
+ 			netdev_info(netdev, "Link down\n");
+From 37309f47e2f5674f3e86cb765312ace42cfcedf5 Mon Sep 17 00:00:00 2001
+From: Ping Cheng <pinglinux@gmail.com>
+Date: Wed, 9 Dec 2020 20:52:30 -0800
+Subject: HID: wacom: Fix memory leakage caused by kfifo_alloc
+
+From: Ping Cheng <pinglinux@gmail.com>
+
+commit 37309f47e2f5674f3e86cb765312ace42cfcedf5 upstream.
+
+As reported by syzbot below, kfifo_alloc'd memory would not be freed
+if a non-zero return value is triggered in wacom_probe. This patch
+creates and uses devm_kfifo_alloc to allocate and free itself.
+
+BUG: memory leak
+unreferenced object 0xffff88810dc44a00 (size 512):
+  comm "kworker/1:2", pid 3674, jiffies 4294943617 (age 14.100s)
+  hex dump (first 32 bytes):
+   00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+   00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+  backtrace:
+   [<0000000023e1afac>] kmalloc_array include/linux/slab.h:592 [inline]
+   [<0000000023e1afac>] __kfifo_alloc+0xad/0x100 lib/kfifo.c:43
+   [<00000000c477f737>] wacom_probe+0x1a1/0x3b0 drivers/hid/wacom_sys.c:2727
+   [<00000000b3109aca>] hid_device_probe+0x16b/0x210 drivers/hid/hid-core.c:2281
+   [<00000000aff7c640>] really_probe+0x159/0x480 drivers/base/dd.c:554
+   [<00000000778d0bc3>] driver_probe_device+0x84/0x100 drivers/base/dd.c:738
+   [<000000005108dbb5>] __device_attach_driver+0xee/0x110 drivers/base/dd.c:844
+   [<00000000efb7c59e>] bus_for_each_drv+0xb7/0x100 drivers/base/bus.c:431
+   [<0000000024ab1590>] __device_attach+0x122/0x250 drivers/base/dd.c:912
+   [<000000004c7ac048>] bus_probe_device+0xc6/0xe0 drivers/base/bus.c:491
+   [<00000000b93050a3>] device_add+0x5ac/0xc30 drivers/base/core.c:2936
+   [<00000000e5b46ea5>] hid_add_device+0x151/0x390 drivers/hid/hid-core.c:2437
+   [<00000000c6add147>] usbhid_probe+0x412/0x560 drivers/hid/usbhid/hid-core.c:1407
+   [<00000000c33acdb4>] usb_probe_interface+0x177/0x370 drivers/usb/core/driver.c:396
+   [<00000000aff7c640>] really_probe+0x159/0x480 drivers/base/dd.c:554
+   [<00000000778d0bc3>] driver_probe_device+0x84/0x100 drivers/base/dd.c:738
+   [<000000005108dbb5>] __device_attach_driver+0xee/0x110 drivers/base/dd.c:844
+
+https://syzkaller.appspot.com/bug?extid=5b49c9695968d7250a26
+
+Reported-by: syzbot+5b49c9695968d7250a26@syzkaller.appspotmail.com
+Signed-off-by: Ping Cheng <ping.cheng@wacom.com>
+Reviewed-by: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Signed-off-by: Jiri Kosina <jkosina@suse.cz>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/hid/wacom_sys.c |   35 ++++++++++++++++++++++++++++++++---
+ 1 file changed, 32 insertions(+), 3 deletions(-)
+
+--- a/drivers/hid/wacom_sys.c
++++ b/drivers/hid/wacom_sys.c
+@@ -1270,6 +1270,37 @@ static int wacom_devm_sysfs_create_group
+ 					       group);
+ }
+ 
++static void wacom_devm_kfifo_release(struct device *dev, void *res)
++{
++	struct kfifo_rec_ptr_2 *devres = res;
++
++	kfifo_free(devres);
++}
++
++static int wacom_devm_kfifo_alloc(struct wacom *wacom)
++{
++	struct wacom_wac *wacom_wac = &wacom->wacom_wac;
++	struct kfifo_rec_ptr_2 *pen_fifo = &wacom_wac->pen_fifo;
++	int error;
++
++	pen_fifo = devres_alloc(wacom_devm_kfifo_release,
++			      sizeof(struct kfifo_rec_ptr_2),
++			      GFP_KERNEL);
++
++	if (!pen_fifo)
++		return -ENOMEM;
++
++	error = kfifo_alloc(pen_fifo, WACOM_PKGLEN_MAX, GFP_KERNEL);
++	if (error) {
++		devres_free(pen_fifo);
++		return error;
++	}
++
++	devres_add(&wacom->hdev->dev, pen_fifo);
++
++	return 0;
++}
++
+ enum led_brightness wacom_leds_brightness_get(struct wacom_led *led)
+ {
+ 	struct wacom *wacom = led->wacom;
+@@ -2724,7 +2755,7 @@ static int wacom_probe(struct hid_device
+ 	if (features->check_for_hid_type && features->hid_type != hdev->type)
+ 		return -ENODEV;
+ 
+-	error = kfifo_alloc(&wacom_wac->pen_fifo, WACOM_PKGLEN_MAX, GFP_KERNEL);
++	error = wacom_devm_kfifo_alloc(wacom);
+ 	if (error)
+ 		return error;
+ 
+@@ -2786,8 +2817,6 @@ static void wacom_remove(struct hid_devi
+ 
+ 	if (wacom->wacom_wac.features.type != REMOTE)
+ 		wacom_release_resources(wacom);
+-
+-	kfifo_free(&wacom_wac->pen_fifo);
+ }
+ 
+ #ifdef CONFIG_PM
+From 2ca408d9c749c32288bc28725f9f12ba30299e8f Mon Sep 17 00:00:00 2001
+From: Brian Gerst <brgerst@gmail.com>
+Date: Mon, 30 Nov 2020 17:30:59 -0500
+Subject: fanotify: Fix sys_fanotify_mark() on native x86-32
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+From: Brian Gerst <brgerst@gmail.com>
+
+commit 2ca408d9c749c32288bc28725f9f12ba30299e8f upstream.
+
+Commit
+
+  121b32a58a3a ("x86/entry/32: Use IA32-specific wrappers for syscalls taking 64-bit arguments")
+
+converted native x86-32 which take 64-bit arguments to use the
+compat handlers to allow conversion to passing args via pt_regs.
+sys_fanotify_mark() was however missed, as it has a general compat
+handler. Add a config option that will use the syscall wrapper that
+takes the split args for native 32-bit.
+
+ [ bp: Fix typo in Kconfig help text. ]
+
+Fixes: 121b32a58a3a ("x86/entry/32: Use IA32-specific wrappers for syscalls taking 64-bit arguments")
+Reported-by: Paweł Jasiak <pawel@jasiak.xyz>
+Signed-off-by: Brian Gerst <brgerst@gmail.com>
+Signed-off-by: Borislav Petkov <bp@suse.de>
+Acked-by: Jan Kara <jack@suse.cz>
+Acked-by: Andy Lutomirski <luto@kernel.org>
+Link: https://lkml.kernel.org/r/20201130223059.101286-1-brgerst@gmail.com
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ arch/Kconfig                       |    6 ++++++
+ arch/x86/Kconfig                   |    1 +
+ fs/notify/fanotify/fanotify_user.c |   17 +++++++----------
+ include/linux/syscalls.h           |   24 ++++++++++++++++++++++++
+ 4 files changed, 38 insertions(+), 10 deletions(-)
+
+--- a/arch/Kconfig
++++ b/arch/Kconfig
+@@ -1053,6 +1053,12 @@ config ARCH_WANT_LD_ORPHAN_WARN
+ 	  by the linker, since the locations of such sections can change between linker
+ 	  versions.
+ 
++config ARCH_SPLIT_ARG64
++	bool
++	help
++	   If a 32-bit architecture requires 64-bit arguments to be split into
++	   pairs of 32-bit arguments, select this option.
++
+ source "kernel/gcov/Kconfig"
+ 
+ source "scripts/gcc-plugins/Kconfig"
+--- a/arch/x86/Kconfig
++++ b/arch/x86/Kconfig
+@@ -18,6 +18,7 @@ config X86_32
+ 	select MODULES_USE_ELF_REL
+ 	select OLD_SIGACTION
+ 	select GENERIC_VDSO_32
++	select ARCH_SPLIT_ARG64
+ 
+ config X86_64
+ 	def_bool y
+--- a/fs/notify/fanotify/fanotify_user.c
++++ b/fs/notify/fanotify/fanotify_user.c
+@@ -1285,26 +1285,23 @@ fput_and_out:
+ 	return ret;
+ }
+ 
++#ifndef CONFIG_ARCH_SPLIT_ARG64
+ SYSCALL_DEFINE5(fanotify_mark, int, fanotify_fd, unsigned int, flags,
+ 			      __u64, mask, int, dfd,
+ 			      const char  __user *, pathname)
+ {
+ 	return do_fanotify_mark(fanotify_fd, flags, mask, dfd, pathname);
+ }
++#endif
+ 
+-#ifdef CONFIG_COMPAT
+-COMPAT_SYSCALL_DEFINE6(fanotify_mark,
++#if defined(CONFIG_ARCH_SPLIT_ARG64) || defined(CONFIG_COMPAT)
++SYSCALL32_DEFINE6(fanotify_mark,
+ 				int, fanotify_fd, unsigned int, flags,
+-				__u32, mask0, __u32, mask1, int, dfd,
++				SC_ARG64(mask), int, dfd,
+ 				const char  __user *, pathname)
+ {
+-	return do_fanotify_mark(fanotify_fd, flags,
+-#ifdef __BIG_ENDIAN
+-				((__u64)mask0 << 32) | mask1,
+-#else
+-				((__u64)mask1 << 32) | mask0,
+-#endif
+-				 dfd, pathname);
++	return do_fanotify_mark(fanotify_fd, flags, SC_VAL64(__u64, mask),
++				dfd, pathname);
+ }
+ #endif
+ 
+--- a/include/linux/syscalls.h
++++ b/include/linux/syscalls.h
+@@ -251,6 +251,30 @@ static inline int is_syscall_trace_event
+ 	static inline long __do_sys##name(__MAP(x,__SC_DECL,__VA_ARGS__))
+ #endif /* __SYSCALL_DEFINEx */
+ 
++/* For split 64-bit arguments on 32-bit architectures */
++#ifdef __LITTLE_ENDIAN
++#define SC_ARG64(name) u32, name##_lo, u32, name##_hi
++#else
++#define SC_ARG64(name) u32, name##_hi, u32, name##_lo
++#endif
++#define SC_VAL64(type, name) ((type) name##_hi << 32 | name##_lo)
++
++#ifdef CONFIG_COMPAT
++#define SYSCALL32_DEFINE1 COMPAT_SYSCALL_DEFINE1
++#define SYSCALL32_DEFINE2 COMPAT_SYSCALL_DEFINE2
++#define SYSCALL32_DEFINE3 COMPAT_SYSCALL_DEFINE3
++#define SYSCALL32_DEFINE4 COMPAT_SYSCALL_DEFINE4
++#define SYSCALL32_DEFINE5 COMPAT_SYSCALL_DEFINE5
++#define SYSCALL32_DEFINE6 COMPAT_SYSCALL_DEFINE6
++#else
++#define SYSCALL32_DEFINE1 SYSCALL_DEFINE1
++#define SYSCALL32_DEFINE2 SYSCALL_DEFINE2
++#define SYSCALL32_DEFINE3 SYSCALL_DEFINE3
++#define SYSCALL32_DEFINE4 SYSCALL_DEFINE4
++#define SYSCALL32_DEFINE5 SYSCALL_DEFINE5
++#define SYSCALL32_DEFINE6 SYSCALL_DEFINE6
++#endif
++
+ /*
+  * Called before coming back to user-mode. Returning to user-mode with an
+  * address limit different than USER_DS can allow to overwrite kernel memory.
+From ec76c2eea903947202098090bbe07a739b5246e9 Mon Sep 17 00:00:00 2001
+From: Andreas Kemnade <andreas@kemnade.info>
+Date: Fri, 4 Dec 2020 10:55:39 +0100
+Subject: ARM: OMAP2+: omap_device: fix idling of devices during probe
+
+From: Andreas Kemnade <andreas@kemnade.info>
+
+commit ec76c2eea903947202098090bbe07a739b5246e9 upstream.
+
+On the GTA04A5 od->_driver_status was not set to BUS_NOTIFY_BIND_DRIVER
+during probe of the second mmc used for wifi. Therefore
+omap_device_late_idle idled the device during probing causing oopses when
+accessing the registers.
+
+It was not set because od->_state was set to OMAP_DEVICE_STATE_IDLE
+in the notifier callback. Therefore set od->_driver_status also in that
+case.
+
+This came apparent after commit 21b2cec61c04 ("mmc: Set
+PROBE_PREFER_ASYNCHRONOUS for drivers that existed in v4.4") causing this
+oops:
+
+omap_hsmmc 480b4000.mmc: omap_device_late_idle: enabled but no driver.  Idling
+8<--- cut here ---
+Unhandled fault: external abort on non-linefetch (0x1028) at 0xfa0b402c
+...
+(omap_hsmmc_set_bus_width) from [<c07996bc>] (omap_hsmmc_set_ios+0x11c/0x258)
+(omap_hsmmc_set_ios) from [<c077b2b0>] (mmc_power_up.part.8+0x3c/0xd0)
+(mmc_power_up.part.8) from [<c077c14c>] (mmc_start_host+0x88/0x9c)
+(mmc_start_host) from [<c077d284>] (mmc_add_host+0x58/0x84)
+(mmc_add_host) from [<c0799190>] (omap_hsmmc_probe+0x5fc/0x8c0)
+(omap_hsmmc_probe) from [<c0666728>] (platform_drv_probe+0x48/0x98)
+(platform_drv_probe) from [<c066457c>] (really_probe+0x1dc/0x3b4)
+
+Fixes: 04abaf07f6d5 ("ARM: OMAP2+: omap_device: Sync omap_device and pm_runtime after probe defer")
+Fixes: 21b2cec61c04 ("mmc: Set PROBE_PREFER_ASYNCHRONOUS for drivers that existed in v4.4")
+Acked-by: Ulf Hansson <ulf.hansson@linaro.org>
+Signed-off-by: Andreas Kemnade <andreas@kemnade.info>
+[tony@atomide.com: left out extra parens, trimmed description stack trace]
+Signed-off-by: Tony Lindgren <tony@atomide.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ arch/arm/mach-omap2/omap_device.c |    8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+--- a/arch/arm/mach-omap2/omap_device.c
++++ b/arch/arm/mach-omap2/omap_device.c
+@@ -230,10 +230,12 @@ static int _omap_device_notifier_call(st
+ 		break;
+ 	case BUS_NOTIFY_BIND_DRIVER:
+ 		od = to_omap_device(pdev);
+-		if (od && (od->_state == OMAP_DEVICE_STATE_ENABLED) &&
+-		    pm_runtime_status_suspended(dev)) {
++		if (od) {
+ 			od->_driver_status = BUS_NOTIFY_BIND_DRIVER;
+-			pm_runtime_set_active(dev);
++			if (od->_state == OMAP_DEVICE_STATE_ENABLED &&
++			    pm_runtime_status_suspended(dev)) {
++				pm_runtime_set_active(dev);
++			}
+ 		}
+ 		break;
+ 	case BUS_NOTIFY_ADD_DEVICE:
+From 0b884fe71f9ee6a5df35e677154256ea2099ebb8 Mon Sep 17 00:00:00 2001
+From: Chunyan Zhang <chunyan.zhang@unisoc.com>
+Date: Mon, 14 Dec 2020 12:58:50 +0800
+Subject: i2c: sprd: use a specific timeout to avoid system hang up issue
+
+From: Chunyan Zhang <chunyan.zhang@unisoc.com>
+
+commit 0b884fe71f9ee6a5df35e677154256ea2099ebb8 upstream.
+
+If the i2c device SCL bus being pulled up due to some exception before
+message transfer done, the system cannot receive the completing interrupt
+signal any more, it would not exit waiting loop until MAX_SCHEDULE_TIMEOUT
+jiffies eclipse, that would make the system seemed hang up. To avoid that
+happen, this patch adds a specific timeout for message transfer.
+
+Fixes: 8b9ec0719834 ("i2c: Add Spreadtrum I2C controller driver")
+Signed-off-by: Linhua Xu <linhua.xu@unisoc.com>
+Signed-off-by: Chunyan Zhang <chunyan.zhang@unisoc.com>
+[wsa: changed errno to ETIMEDOUT]
+Signed-off-by: Wolfram Sang <wsa@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/i2c/busses/i2c-sprd.c |    8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+--- a/drivers/i2c/busses/i2c-sprd.c
++++ b/drivers/i2c/busses/i2c-sprd.c
+@@ -72,6 +72,8 @@
+ 
+ /* timeout (ms) for pm runtime autosuspend */
+ #define SPRD_I2C_PM_TIMEOUT	1000
++/* timeout (ms) for transfer message */
++#define I2C_XFER_TIMEOUT	1000
+ 
+ /* SPRD i2c data structure */
+ struct sprd_i2c {
+@@ -244,6 +246,7 @@ static int sprd_i2c_handle_msg(struct i2
+ 			       struct i2c_msg *msg, bool is_last_msg)
+ {
+ 	struct sprd_i2c *i2c_dev = i2c_adap->algo_data;
++	unsigned long time_left;
+ 
+ 	i2c_dev->msg = msg;
+ 	i2c_dev->buf = msg->buf;
+@@ -273,7 +276,10 @@ static int sprd_i2c_handle_msg(struct i2
+ 
+ 	sprd_i2c_opt_start(i2c_dev);
+ 
+-	wait_for_completion(&i2c_dev->complete);
++	time_left = wait_for_completion_timeout(&i2c_dev->complete,
++				msecs_to_jiffies(I2C_XFER_TIMEOUT));
++	if (!time_left)
++		return -ETIMEDOUT;
+ 
+ 	return i2c_dev->err;
+ }
+From 595a334148449bd1d27cf5d6fcb3b0d718cb1b9f Mon Sep 17 00:00:00 2001
+From: Dan Carpenter <dan.carpenter@oracle.com>
+Date: Mon, 14 Dec 2020 14:56:52 +0300
+Subject: dmaengine: dw-edma: Fix use after free in dw_edma_alloc_chunk()
+
+From: Dan Carpenter <dan.carpenter@oracle.com>
+
+commit 595a334148449bd1d27cf5d6fcb3b0d718cb1b9f upstream.
+
+If the dw_edma_alloc_burst() function fails then we free "chunk" but
+it's still on the "desc->chunk->list" list so it will lead to a use
+after free.  Also the "->chunks_alloc" count is incremented when it
+shouldn't be.
+
+In current kernels small allocations are guaranteed to succeed and
+dw_edma_alloc_burst() can't fail so this will not actually affect
+runtime.
+
+Fixes: e63d79d1ffcd ("dmaengine: Add Synopsys eDMA IP core driver")
+Signed-off-by: Dan Carpenter <dan.carpenter@oracle.com>
+Acked-by: Gustavo Pimentel <gustavo.pimentel@synopsys.com>
+Link: https://lore.kernel.org/r/X9dTBFrUPEvvW7qc@mwanda
+Signed-off-by: Vinod Koul <vkoul@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/dma/dw-edma/dw-edma-core.c |    4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+--- a/drivers/dma/dw-edma/dw-edma-core.c
++++ b/drivers/dma/dw-edma/dw-edma-core.c
+@@ -86,12 +86,12 @@ static struct dw_edma_chunk *dw_edma_all
+ 
+ 	if (desc->chunk) {
+ 		/* Create and add new element into the linked list */
+-		desc->chunks_alloc++;
+-		list_add_tail(&chunk->list, &desc->chunk->list);
+ 		if (!dw_edma_alloc_burst(chunk)) {
+ 			kfree(chunk);
+ 			return NULL;
+ 		}
++		desc->chunks_alloc++;
++		list_add_tail(&chunk->list, &desc->chunk->list);
+ 	} else {
+ 		/* List head */
+ 		chunk->burst = NULL;
+From 1a3449c19407a28f7019a887cdf0d6ba2444751a Mon Sep 17 00:00:00 2001
+From: Kamal Mostafa <kamal@canonical.com>
+Date: Tue, 15 Dec 2020 10:20:10 -0800
+Subject: selftests/bpf: Clarify build error if no vmlinux
+
+From: Kamal Mostafa <kamal@canonical.com>
+
+commit 1a3449c19407a28f7019a887cdf0d6ba2444751a upstream.
+
+If Makefile cannot find any of the vmlinux's in its VMLINUX_BTF_PATHS list,
+it tries to run btftool incorrectly, with VMLINUX_BTF unset:
+
+    bpftool btf dump file $(VMLINUX_BTF) format c
+
+Such that the keyword 'format' is misinterpreted as the path to vmlinux.
+The resulting build error message is fairly cryptic:
+
+      GEN      vmlinux.h
+    Error: failed to load BTF from format: No such file or directory
+
+This patch makes the failure reason clearer by yielding this instead:
+
+    Makefile:...: *** Cannot find a vmlinux for VMLINUX_BTF at any of
+    "{paths}".  Stop.
+
+Fixes: acbd06206bbb ("selftests/bpf: Add vmlinux.h selftest exercising tracing of syscalls")
+Signed-off-by: Kamal Mostafa <kamal@canonical.com>
+Signed-off-by: Andrii Nakryiko <andrii@kernel.org>
+Link: https://lore.kernel.org/bpf/20201215182011.15755-1-kamal@canonical.com
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ tools/testing/selftests/bpf/Makefile |    3 +++
+ 1 file changed, 3 insertions(+)
+
+--- a/tools/testing/selftests/bpf/Makefile
++++ b/tools/testing/selftests/bpf/Makefile
+@@ -146,6 +146,9 @@ VMLINUX_BTF_PATHS ?= $(if $(O),$(O)/vmli
+ 		     /sys/kernel/btf/vmlinux				\
+ 		     /boot/vmlinux-$(shell uname -r)
+ VMLINUX_BTF ?= $(abspath $(firstword $(wildcard $(VMLINUX_BTF_PATHS))))
++ifeq ($(VMLINUX_BTF),)
++$(error Cannot find a vmlinux for VMLINUX_BTF at any of "$(VMLINUX_BTF_PATHS)")
++endif
+ 
+ DEFAULT_BPFTOOL := $(SCRATCH_DIR)/sbin/bpftool
+ 
+From aee2b3ccc8a63d1cd7da6a8a153d1f3712d40826 Mon Sep 17 00:00:00 2001
+From: Marc Kleine-Budde <mkl@pengutronix.de>
+Date: Tue, 15 Dec 2020 11:32:38 +0100
+Subject: can: tcan4x5x: fix bittiming const, use common bittiming from m_can driver
+
+From: Marc Kleine-Budde <mkl@pengutronix.de>
+
+commit aee2b3ccc8a63d1cd7da6a8a153d1f3712d40826 upstream.
+
+According to the TCAN4550 datasheet "SLLSF91 - DECEMBER 2018" the tcan4x5x has
+the same bittiming constants as a m_can revision 3.2.x/3.3.0.
+
+The tcan4x5x chip I'm using identifies itself as m_can revision 3.2.1, so
+remove the tcan4x5x specific bittiming values and rely on the values in the
+m_can driver, which are selected according to core revision.
+
+Fixes: 5443c226ba91 ("can: tcan4x5x: Add tcan4x5x driver to the kernel")
+Cc: Dan Murphy <dmurphy@ti.com>
+Reviewed-by: Sean Nyekjaer <sean@geanix.com>
+Link: https://lore.kernel.org/r/20201215103238.524029-3-mkl@pengutronix.de
+Signed-off-by: Marc Kleine-Budde <mkl@pengutronix.de>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/net/can/m_can/tcan4x5x.c |   26 --------------------------
+ 1 file changed, 26 deletions(-)
+
+--- a/drivers/net/can/m_can/tcan4x5x.c
++++ b/drivers/net/can/m_can/tcan4x5x.c
+@@ -129,30 +129,6 @@ struct tcan4x5x_priv {
+ 	int reg_offset;
+ };
+ 
+-static struct can_bittiming_const tcan4x5x_bittiming_const = {
+-	.name = DEVICE_NAME,
+-	.tseg1_min = 2,
+-	.tseg1_max = 31,
+-	.tseg2_min = 2,
+-	.tseg2_max = 16,
+-	.sjw_max = 16,
+-	.brp_min = 1,
+-	.brp_max = 32,
+-	.brp_inc = 1,
+-};
+-
+-static struct can_bittiming_const tcan4x5x_data_bittiming_const = {
+-	.name = DEVICE_NAME,
+-	.tseg1_min = 1,
+-	.tseg1_max = 32,
+-	.tseg2_min = 1,
+-	.tseg2_max = 16,
+-	.sjw_max = 16,
+-	.brp_min = 1,
+-	.brp_max = 32,
+-	.brp_inc = 1,
+-};
+-
+ static void tcan4x5x_check_wake(struct tcan4x5x_priv *priv)
+ {
+ 	int wake_state = 0;
+@@ -479,8 +455,6 @@ static int tcan4x5x_can_probe(struct spi
+ 	mcan_class->dev = &spi->dev;
+ 	mcan_class->ops = &tcan4x5x_ops;
+ 	mcan_class->is_peripheral = true;
+-	mcan_class->bit_timing = &tcan4x5x_bittiming_const;
+-	mcan_class->data_timing = &tcan4x5x_data_bittiming_const;
+ 	mcan_class->net->irq = spi->irq;
+ 
+ 	spi_set_drvdata(spi, priv);
+From c4aec381ab98c9189d47b935832541d520f1f67f Mon Sep 17 00:00:00 2001
+From: Marc Kleine-Budde <mkl@pengutronix.de>
+Date: Tue, 15 Dec 2020 11:32:37 +0100
+Subject: can: m_can: m_can_class_unregister(): remove erroneous m_can_clk_stop()
+
+From: Marc Kleine-Budde <mkl@pengutronix.de>
+
+commit c4aec381ab98c9189d47b935832541d520f1f67f upstream.
+
+In m_can_class_register() the clock is started, but stopped on exit. When
+calling m_can_class_unregister(), the clock is stopped a second time.
+
+This patch removes the erroneous m_can_clk_stop() in  m_can_class_unregister().
+
+Fixes: f524f829b75a ("can: m_can: Create a m_can platform framework")
+Cc: Dan Murphy <dmurphy@ti.com>
+Cc: Sriram Dash <sriram.dash@samsung.com>
+Reviewed-by: Sean Nyekjaer <sean@geanix.com>
+Link: https://lore.kernel.org/r/20201215103238.524029-2-mkl@pengutronix.de
+Signed-off-by: Marc Kleine-Budde <mkl@pengutronix.de>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/net/can/m_can/m_can.c |    2 --
+ 1 file changed, 2 deletions(-)
+
+--- a/drivers/net/can/m_can/m_can.c
++++ b/drivers/net/can/m_can/m_can.c
+@@ -1914,8 +1914,6 @@ EXPORT_SYMBOL_GPL(m_can_class_resume);
+ void m_can_class_unregister(struct m_can_classdev *m_can_dev)
+ {
+ 	unregister_candev(m_can_dev->net);
+-
+-	m_can_clk_stop(m_can_dev);
+ }
+ EXPORT_SYMBOL_GPL(m_can_class_unregister);
+ 
+From 1d48595c786b1b9dc6be301e8d7f6fc74e9882aa Mon Sep 17 00:00:00 2001
+From: Arnd Bergmann <arnd@arndb.de>
+Date: Sun, 3 Jan 2021 22:36:19 +0100
+Subject: can: kvaser_pciefd: select CONFIG_CRC32
+
+From: Arnd Bergmann <arnd@arndb.de>
+
+commit 1d48595c786b1b9dc6be301e8d7f6fc74e9882aa upstream.
+
+Without crc32, this driver fails to link:
+
+arm-linux-gnueabi-ld: drivers/net/can/kvaser_pciefd.o: in function `kvaser_pciefd_probe':
+kvaser_pciefd.c:(.text+0x2b0): undefined reference to `crc32_be'
+
+Fixes: 26ad340e582d ("can: kvaser_pciefd: Add driver for Kvaser PCIEcan devices")
+Signed-off-by: Arnd Bergmann <arnd@arndb.de>
+Acked-by: Marc Kleine-Budde <mkl@pengutronix.de>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/net/can/Kconfig |    1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/drivers/net/can/Kconfig
++++ b/drivers/net/can/Kconfig
+@@ -123,6 +123,7 @@ config CAN_JANZ_ICAN3
+ config CAN_KVASER_PCIEFD
+ 	depends on PCI
+ 	tristate "Kvaser PCIe FD cards"
++	select CRC32
+ 	  help
+ 	  This is a driver for the Kvaser PCI Express CAN FD family.
+ 
+From 690d8b917bbe64772cb0b652311bcd50908aea6b Mon Sep 17 00:00:00 2001
+From: Douglas Anderson <dianders@chromium.org>
+Date: Thu, 17 Dec 2020 14:29:12 -0800
+Subject: spi: spi-geni-qcom: Fail new xfers if xfer/cancel/abort pending
+
+From: Douglas Anderson <dianders@chromium.org>
+
+commit 690d8b917bbe64772cb0b652311bcd50908aea6b upstream.
+
+If we got a timeout when trying to send an abort command then it means
+that we just got 3 timeouts in a row:
+
+1. The original timeout that caused handle_fifo_timeout() to be
+   called.
+2. A one second timeout waiting for the cancel command to finish.
+3. A one second timeout waiting for the abort command to finish.
+
+SPI is clocked by the controller, so nothing (aside from a hardware
+fault or a totally broken sequencer) should be causing the actual
+commands to fail in hardware.  However, even though the hardware
+itself is not expected to fail (and it'd be hard to predict how we
+should handle things if it did), it's easy to hit the timeout case by
+simply blocking our interrupt handler from running for a long period
+of time.  Obviously the system is in pretty bad shape if a interrupt
+handler is blocked for > 2 seconds, but there are certainly bugs (even
+bugs in other unrelated drivers) that can make this happen.
+
+Let's make things a bit more robust against this case.  If we fail to
+abort we'll set a flag and then we'll block all future transfers until
+we have no more interrupts pending.
+
+Fixes: 561de45f72bd ("spi: spi-geni-qcom: Add SPI driver support for GENI based QUP")
+Signed-off-by: Douglas Anderson <dianders@chromium.org>
+Reviewed-by: Stephen Boyd <swboyd@chromium.org>
+Link: https://lore.kernel.org/r/20201217142842.v3.2.Ibade998ed587e070388b4bf58801f1107a40eb53@changeid
+Signed-off-by: Mark Brown <broonie@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/spi/spi-geni-qcom.c |   59 ++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 57 insertions(+), 2 deletions(-)
+
+--- a/drivers/spi/spi-geni-qcom.c
++++ b/drivers/spi/spi-geni-qcom.c
+@@ -83,6 +83,7 @@ struct spi_geni_master {
+ 	spinlock_t lock;
+ 	int irq;
+ 	bool cs_flag;
++	bool abort_failed;
+ };
+ 
+ static int get_spi_clk_cfg(unsigned int speed_hz,
+@@ -141,8 +142,49 @@ static void handle_fifo_timeout(struct s
+ 	spin_unlock_irq(&mas->lock);
+ 
+ 	time_left = wait_for_completion_timeout(&mas->abort_done, HZ);
+-	if (!time_left)
++	if (!time_left) {
+ 		dev_err(mas->dev, "Failed to cancel/abort m_cmd\n");
++
++		/*
++		 * No need for a lock since SPI core has a lock and we never
++		 * access this from an interrupt.
++		 */
++		mas->abort_failed = true;
++	}
++}
++
++static bool spi_geni_is_abort_still_pending(struct spi_geni_master *mas)
++{
++	struct geni_se *se = &mas->se;
++	u32 m_irq, m_irq_en;
++
++	if (!mas->abort_failed)
++		return false;
++
++	/*
++	 * The only known case where a transfer times out and then a cancel
++	 * times out then an abort times out is if something is blocking our
++	 * interrupt handler from running.  Avoid starting any new transfers
++	 * until that sorts itself out.
++	 */
++	spin_lock_irq(&mas->lock);
++	m_irq = readl(se->base + SE_GENI_M_IRQ_STATUS);
++	m_irq_en = readl(se->base + SE_GENI_M_IRQ_EN);
++	spin_unlock_irq(&mas->lock);
++
++	if (m_irq & m_irq_en) {
++		dev_err(mas->dev, "Interrupts pending after abort: %#010x\n",
++			m_irq & m_irq_en);
++		return true;
++	}
++
++	/*
++	 * If we're here the problem resolved itself so no need to check more
++	 * on future transfers.
++	 */
++	mas->abort_failed = false;
++
++	return false;
+ }
+ 
+ static void spi_geni_set_cs(struct spi_device *slv, bool set_flag)
+@@ -158,9 +200,15 @@ static void spi_geni_set_cs(struct spi_d
+ 	if (set_flag == mas->cs_flag)
+ 		return;
+ 
++	pm_runtime_get_sync(mas->dev);
++
++	if (spi_geni_is_abort_still_pending(mas)) {
++		dev_err(mas->dev, "Can't set chip select\n");
++		goto exit;
++	}
++
+ 	mas->cs_flag = set_flag;
+ 
+-	pm_runtime_get_sync(mas->dev);
+ 	spin_lock_irq(&mas->lock);
+ 	reinit_completion(&mas->cs_done);
+ 	if (set_flag)
+@@ -173,6 +221,7 @@ static void spi_geni_set_cs(struct spi_d
+ 	if (!time_left)
+ 		handle_fifo_timeout(spi, NULL);
+ 
++exit:
+ 	pm_runtime_put(mas->dev);
+ }
+ 
+@@ -280,6 +329,9 @@ static int spi_geni_prepare_message(stru
+ 	int ret;
+ 	struct spi_geni_master *mas = spi_master_get_devdata(spi);
+ 
++	if (spi_geni_is_abort_still_pending(mas))
++		return -EBUSY;
++
+ 	ret = setup_fifo_params(spi_msg->spi, spi);
+ 	if (ret)
+ 		dev_err(mas->dev, "Couldn't select mode %d\n", ret);
+@@ -495,6 +547,9 @@ static int spi_geni_transfer_one(struct
+ {
+ 	struct spi_geni_master *mas = spi_master_get_devdata(spi);
+ 
++	if (spi_geni_is_abort_still_pending(mas))
++		return -EBUSY;
++
+ 	/* Terminate and return success for 0 byte length transfer */
+ 	if (!xfer->len)
+ 		return 0;
+From 943bdd0cecad06da8392a33093230e30e501eccc Mon Sep 17 00:00:00 2001
+From: Colin Ian King <colin.king@canonical.com>
+Date: Tue, 5 Jan 2021 10:19:57 +0000
+Subject: cpufreq: powernow-k8: pass policy rather than use cpufreq_cpu_get()
+
+From: Colin Ian King <colin.king@canonical.com>
+
+commit 943bdd0cecad06da8392a33093230e30e501eccc upstream.
+
+Currently there is an unlikely case where cpufreq_cpu_get() returns a
+NULL policy and this will cause a NULL pointer dereference later on.
+
+Fix this by passing the policy to transition_frequency_fidvid() from
+the caller and hence eliminating the need for the cpufreq_cpu_get()
+and cpufreq_cpu_put().
+
+Thanks to Viresh Kumar for suggesting the fix.
+
+Addresses-Coverity: ("Dereference null return")
+Fixes: b43a7ffbf33b ("cpufreq: Notify all policy->cpus in cpufreq_notify_transition()")
+Suggested-by: Viresh Kumar <viresh.kumar@linaro.org>
+Signed-off-by: Colin Ian King <colin.king@canonical.com>
+Acked-by: Viresh Kumar <viresh.kumar@linaro.org>
+Signed-off-by: Rafael J. Wysocki <rafael.j.wysocki@intel.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/cpufreq/powernow-k8.c |    9 +++------
+ 1 file changed, 3 insertions(+), 6 deletions(-)
+
+--- a/drivers/cpufreq/powernow-k8.c
++++ b/drivers/cpufreq/powernow-k8.c
+@@ -878,9 +878,9 @@ static int get_transition_latency(struct
+ 
+ /* Take a frequency, and issue the fid/vid transition command */
+ static int transition_frequency_fidvid(struct powernow_k8_data *data,
+-		unsigned int index)
++		unsigned int index,
++		struct cpufreq_policy *policy)
+ {
+-	struct cpufreq_policy *policy;
+ 	u32 fid = 0;
+ 	u32 vid = 0;
+ 	int res;
+@@ -912,9 +912,6 @@ static int transition_frequency_fidvid(s
+ 	freqs.old = find_khz_freq_from_fid(data->currfid);
+ 	freqs.new = find_khz_freq_from_fid(fid);
+ 
+-	policy = cpufreq_cpu_get(smp_processor_id());
+-	cpufreq_cpu_put(policy);
+-
+ 	cpufreq_freq_transition_begin(policy, &freqs);
+ 	res = transition_fid_vid(data, fid, vid);
+ 	cpufreq_freq_transition_end(policy, &freqs, res);
+@@ -969,7 +966,7 @@ static long powernowk8_target_fn(void *a
+ 
+ 	powernow_k8_acpi_pst_values(data, newstate);
+ 
+-	ret = transition_frequency_fidvid(data, newstate);
++	ret = transition_frequency_fidvid(data, newstate, pol);
+ 
+ 	if (ret) {
+ 		pr_err("transition frequency failed\n");
+From 4aa1464acbe3697710279a4bd65cb4801ed30425 Mon Sep 17 00:00:00 2001
+From: Douglas Anderson <dianders@chromium.org>
+Date: Thu, 17 Dec 2020 14:29:11 -0800
+Subject: spi: spi-geni-qcom: Fix geni_spi_isr() NULL dereference in timeout case
+
+From: Douglas Anderson <dianders@chromium.org>
+
+commit 4aa1464acbe3697710279a4bd65cb4801ed30425 upstream.
+
+In commit 7ba9bdcb91f6 ("spi: spi-geni-qcom: Don't keep a local state
+variable") we changed handle_fifo_timeout() so that we set
+"mas->cur_xfer" to NULL to make absolutely sure that we don't mess
+with the buffers from the previous transfer in the timeout case.
+
+Unfortunately, this caused the IRQ handler to dereference NULL in some
+cases.  One case:
+
+  CPU0                           CPU1
+  ----                           ----
+                                 setup_fifo_xfer()
+                                  geni_se_setup_m_cmd()
+                                 <hardware starts transfer>
+                                 <transfer completes in hardware>
+                                 <hardware sets M_RX_FIFO_WATERMARK_EN in m_irq>
+                                 ...
+                                 handle_fifo_timeout()
+                                  spin_lock_irq(mas->lock)
+                                  mas->cur_xfer = NULL
+                                  geni_se_cancel_m_cmd()
+                                  spin_unlock_irq(mas->lock)
+
+  geni_spi_isr()
+   spin_lock(mas->lock)
+   if (m_irq & M_RX_FIFO_WATERMARK_EN)
+    geni_spi_handle_rx()
+     mas->cur_xfer NULL dereference!
+
+tl;dr: Seriously delayed interrupts for RX/TX can lead to timeout
+handling setting mas->cur_xfer to NULL.
+
+Let's check for the NULL transfer in the TX and RX cases and reset the
+watermark or clear out the fifo respectively to put the hardware back
+into a sane state.
+
+NOTE: things still could get confused if we get timeouts all the way
+through handle_fifo_timeout() and then start a new transfer because
+interrupts from the old transfer / cancel / abort could still be
+pending.  A future patch will help this corner case.
+
+Fixes: 561de45f72bd ("spi: spi-geni-qcom: Add SPI driver support for GENI based QUP")
+Signed-off-by: Douglas Anderson <dianders@chromium.org>
+Reviewed-by: Stephen Boyd <swboyd@chromium.org>
+Link: https://lore.kernel.org/r/20201217142842.v3.1.I99ee04f0cb823415df59bd4f550d6ff5756e43d6@changeid
+Signed-off-by: Mark Brown <broonie@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/spi/spi-geni-qcom.c |   14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+--- a/drivers/spi/spi-geni-qcom.c
++++ b/drivers/spi/spi-geni-qcom.c
+@@ -406,6 +406,12 @@ static bool geni_spi_handle_tx(struct sp
+ 	unsigned int bytes_per_fifo_word = geni_byte_per_fifo_word(mas);
+ 	unsigned int i = 0;
+ 
++	/* Stop the watermark IRQ if nothing to send */
++	if (!mas->cur_xfer) {
++		writel(0, se->base + SE_GENI_TX_WATERMARK_REG);
++		return false;
++	}
++
+ 	max_bytes = (mas->tx_fifo_depth - mas->tx_wm) * bytes_per_fifo_word;
+ 	if (mas->tx_rem_bytes < max_bytes)
+ 		max_bytes = mas->tx_rem_bytes;
+@@ -448,6 +454,14 @@ static void geni_spi_handle_rx(struct sp
+ 		if (rx_last_byte_valid && rx_last_byte_valid < 4)
+ 			rx_bytes -= bytes_per_fifo_word - rx_last_byte_valid;
+ 	}
++
++	/* Clear out the FIFO and bail if nowhere to put it */
++	if (!mas->cur_xfer) {
++		for (i = 0; i < DIV_ROUND_UP(rx_bytes, bytes_per_fifo_word); i++)
++			readl(se->base + SE_GENI_RX_FIFOn);
++		return;
++	}
++
+ 	if (mas->rx_rem_bytes < rx_bytes)
+ 		rx_bytes = mas->rx_rem_bytes;
+ 
+From a590370d918fc66c62df6620445791fbe840344a Mon Sep 17 00:00:00 2001
+From: Roman Guskov <rguskov@dh-electronics.com>
+Date: Mon, 21 Dec 2020 13:35:32 +0100
+Subject: spi: stm32: FIFO threshold level - fix align packet size
+
+From: Roman Guskov <rguskov@dh-electronics.com>
+
+commit a590370d918fc66c62df6620445791fbe840344a upstream.
+
+if cur_bpw <= 8 and xfer_len < 4 then the value of fthlv will be 1 and
+SPI registers content may have been lost.
+
+* If SPI data register is accessed as a 16-bit register and DSIZE <= 8bit,
+  better to select FTHLV = 2, 4, 6 etc
+
+* If SPI data register is accessed as a 32-bit register and DSIZE > 8bit,
+  better to select FTHLV = 2, 4, 6 etc, while if DSIZE <= 8bit,
+  better to select FTHLV = 4, 8, 12 etc
+
+Signed-off-by: Roman Guskov <rguskov@dh-electronics.com>
+Fixes: dcbe0d84dfa5 ("spi: add driver for STM32 SPI controller")
+Reviewed-by: Marek Vasut <marex@denx.de>
+Link: https://lore.kernel.org/r/20201221123532.27272-1-rguskov@dh-electronics.com
+Signed-off-by: Mark Brown <broonie@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/spi/spi-stm32.c |    4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+--- a/drivers/spi/spi-stm32.c
++++ b/drivers/spi/spi-stm32.c
+@@ -493,9 +493,9 @@ static u32 stm32h7_spi_prepare_fthlv(str
+ 
+ 	/* align packet size with data registers access */
+ 	if (spi->cur_bpw > 8)
+-		fthlv -= (fthlv % 2); /* multiple of 2 */
++		fthlv += (fthlv % 2) ? 1 : 0;
+ 	else
+-		fthlv -= (fthlv % 4); /* multiple of 4 */
++		fthlv += (fthlv % 4) ? (4 - (fthlv % 4)) : 0;
+ 
+ 	if (!fthlv)
+ 		fthlv = 1;
+From 0b3ea2a06de1f52ea30865e227e109a5fd3b6214 Mon Sep 17 00:00:00 2001
+From: Hans de Goede <hdegoede@redhat.com>
+Date: Mon, 21 Dec 2020 14:42:25 +0100
+Subject: i2c: i801: Fix the i2c-mux gpiod_lookup_table not being properly terminated
+
+From: Hans de Goede <hdegoede@redhat.com>
+
+commit 0b3ea2a06de1f52ea30865e227e109a5fd3b6214 upstream.
+
+gpiod_add_lookup_table() expects the gpiod_lookup_table->table passed to
+it to be terminated with a zero-ed out entry.
+
+So we need to allocate one more entry then we will use.
+
+Fixes: d308dfbf62ef ("i2c: mux/i801: Switch to use descriptor passing")
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Reviewed-by: Mika Westerberg <mika.westerberg@linux.intel.com>
+Acked-by: Jean Delvare <jdelvare@suse.de>
+Reviewed-by: Linus Walleij <linus.walleij@linaro.org>
+Signed-off-by: Wolfram Sang <wsa@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/i2c/busses/i2c-i801.c |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/drivers/i2c/busses/i2c-i801.c
++++ b/drivers/i2c/busses/i2c-i801.c
+@@ -1449,7 +1449,7 @@ static int i801_add_mux(struct i801_priv
+ 
+ 	/* Register GPIO descriptor lookup table */
+ 	lookup = devm_kzalloc(dev,
+-			      struct_size(lookup, table, mux_config->n_gpios),
++			      struct_size(lookup, table, mux_config->n_gpios + 1),
+ 			      GFP_KERNEL);
+ 	if (!lookup)
+ 		return -ENOMEM;
+From 05f6f7271a38c482c5021967433f7b698e102c45 Mon Sep 17 00:00:00 2001
+From: Qii Wang <qii.wang@mediatek.com>
+Date: Thu, 24 Dec 2020 20:26:07 +0800
+Subject: i2c: mediatek: Fix apdma and i2c hand-shake timeout
+
+From: Qii Wang <qii.wang@mediatek.com>
+
+commit 05f6f7271a38c482c5021967433f7b698e102c45 upstream.
+
+With the apdma remove hand-shake signal, it requirs special
+operation timing to reset i2c manually, otherwise the interrupt
+will not be triggered, i2c transmission will be timeout.
+
+Fixes: 8426fe70cfa4("i2c: mediatek: Add apdma sync in i2c driver")
+Signed-off-by: Qii Wang <qii.wang@mediatek.com>
+Signed-off-by: Wolfram Sang <wsa@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/i2c/busses/i2c-mt65xx.c |   27 ++++++++++++++++++++++-----
+ 1 file changed, 22 insertions(+), 5 deletions(-)
+
+--- a/drivers/i2c/busses/i2c-mt65xx.c
++++ b/drivers/i2c/busses/i2c-mt65xx.c
+@@ -38,6 +38,7 @@
+ #define I2C_IO_CONFIG_OPEN_DRAIN	0x0003
+ #define I2C_IO_CONFIG_PUSH_PULL		0x0000
+ #define I2C_SOFT_RST			0x0001
++#define I2C_HANDSHAKE_RST		0x0020
+ #define I2C_FIFO_ADDR_CLR		0x0001
+ #define I2C_DELAY_LEN			0x0002
+ #define I2C_TIME_CLR_VALUE		0x0000
+@@ -45,6 +46,7 @@
+ #define I2C_WRRD_TRANAC_VALUE		0x0002
+ #define I2C_RD_TRANAC_VALUE		0x0001
+ #define I2C_SCL_MIS_COMP_VALUE		0x0000
++#define I2C_CHN_CLR_FLAG		0x0000
+ 
+ #define I2C_DMA_CON_TX			0x0000
+ #define I2C_DMA_CON_RX			0x0001
+@@ -54,7 +56,9 @@
+ #define I2C_DMA_START_EN		0x0001
+ #define I2C_DMA_INT_FLAG_NONE		0x0000
+ #define I2C_DMA_CLR_FLAG		0x0000
++#define I2C_DMA_WARM_RST		0x0001
+ #define I2C_DMA_HARD_RST		0x0002
++#define I2C_DMA_HANDSHAKE_RST		0x0004
+ 
+ #define MAX_SAMPLE_CNT_DIV		8
+ #define MAX_STEP_CNT_DIV		64
+@@ -475,11 +479,24 @@ static void mtk_i2c_init_hw(struct mtk_i
+ {
+ 	u16 control_reg;
+ 
+-	writel(I2C_DMA_HARD_RST, i2c->pdmabase + OFFSET_RST);
+-	udelay(50);
+-	writel(I2C_DMA_CLR_FLAG, i2c->pdmabase + OFFSET_RST);
+-
+-	mtk_i2c_writew(i2c, I2C_SOFT_RST, OFFSET_SOFTRESET);
++	if (i2c->dev_comp->dma_sync) {
++		writel(I2C_DMA_WARM_RST, i2c->pdmabase + OFFSET_RST);
++		udelay(10);
++		writel(I2C_DMA_CLR_FLAG, i2c->pdmabase + OFFSET_RST);
++		udelay(10);
++		writel(I2C_DMA_HANDSHAKE_RST | I2C_DMA_HARD_RST,
++		       i2c->pdmabase + OFFSET_RST);
++		mtk_i2c_writew(i2c, I2C_HANDSHAKE_RST | I2C_SOFT_RST,
++			       OFFSET_SOFTRESET);
++		udelay(10);
++		writel(I2C_DMA_CLR_FLAG, i2c->pdmabase + OFFSET_RST);
++		mtk_i2c_writew(i2c, I2C_CHN_CLR_FLAG, OFFSET_SOFTRESET);
++	} else {
++		writel(I2C_DMA_HARD_RST, i2c->pdmabase + OFFSET_RST);
++		udelay(50);
++		writel(I2C_DMA_CLR_FLAG, i2c->pdmabase + OFFSET_RST);
++		mtk_i2c_writew(i2c, I2C_SOFT_RST, OFFSET_SOFTRESET);
++	}
+ 
+ 	/* Set ioconfig */
+ 	if (i2c->use_push_pull)
+From 5342fd4255021ef0c4ce7be52eea1c4ebda11c63 Mon Sep 17 00:00:00 2001
+From: Coly Li <colyli@suse.de>
+Date: Mon, 4 Jan 2021 15:41:22 +0800
+Subject: bcache: set bcache device into read-only mode for BCH_FEATURE_INCOMPAT_OBSO_LARGE_BUCKET
+
+From: Coly Li <colyli@suse.de>
+
+commit 5342fd4255021ef0c4ce7be52eea1c4ebda11c63 upstream.
+
+If BCH_FEATURE_INCOMPAT_OBSO_LARGE_BUCKET is set in incompat feature
+set, it means the cache device is created with obsoleted layout with
+obso_bucket_site_hi. Now bcache does not support this feature bit, a new
+BCH_FEATURE_INCOMPAT_LOG_LARGE_BUCKET_SIZE incompat feature bit is added
+for a better layout to support large bucket size.
+
+For the legacy compatibility purpose, if a cache device created with
+obsoleted BCH_FEATURE_INCOMPAT_OBSO_LARGE_BUCKET feature bit, all bcache
+devices attached to this cache set should be set to read-only. Then the
+dirty data can be written back to backing device before re-create the
+cache device with BCH_FEATURE_INCOMPAT_LOG_LARGE_BUCKET_SIZE feature bit
+by the latest bcache-tools.
+
+This patch checks BCH_FEATURE_INCOMPAT_OBSO_LARGE_BUCKET feature bit
+when running a cache set and attach a bcache device to the cache set. If
+this bit is set,
+- When run a cache set, print an error kernel message to indicate all
+  following attached bcache device will be read-only.
+- When attach a bcache device, print an error kernel message to indicate
+  the attached bcache device will be read-only, and ask users to update
+  to latest bcache-tools.
+
+Such change is only for cache device whose bucket size >= 32MB, this is
+for the zoned SSD and almost nobody uses such large bucket size at this
+moment. If you don't explicit set a large bucket size for a zoned SSD,
+such change is totally transparent to your bcache device.
+
+Fixes: ffa470327572 ("bcache: add bucket_size_hi into struct cache_sb_disk for large bucket")
+Signed-off-by: Coly Li <colyli@suse.de>
+Signed-off-by: Jens Axboe <axboe@kernel.dk>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/md/bcache/super.c |   15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+--- a/drivers/md/bcache/super.c
++++ b/drivers/md/bcache/super.c
+@@ -1341,6 +1341,12 @@ int bch_cached_dev_attach(struct cached_
+ 	bcache_device_link(&dc->disk, c, "bdev");
+ 	atomic_inc(&c->attached_dev_nr);
+ 
++	if (bch_has_feature_obso_large_bucket(&(c->cache->sb))) {
++		pr_err("The obsoleted large bucket layout is unsupported, set the bcache device into read-only\n");
++		pr_err("Please update to the latest bcache-tools to create the cache device\n");
++		set_disk_ro(dc->disk.disk, 1);
++	}
++
+ 	/* Allow the writeback thread to proceed */
+ 	up_write(&dc->writeback_lock);
+ 
+@@ -1564,6 +1570,12 @@ static int flash_dev_run(struct cache_se
+ 
+ 	bcache_device_link(d, c, "volume");
+ 
++	if (bch_has_feature_obso_large_bucket(&c->cache->sb)) {
++		pr_err("The obsoleted large bucket layout is unsupported, set the bcache device into read-only\n");
++		pr_err("Please update to the latest bcache-tools to create the cache device\n");
++		set_disk_ro(d->disk, 1);
++	}
++
+ 	return 0;
+ err:
+ 	kobject_put(&d->kobj);
+@@ -2123,6 +2135,9 @@ static int run_cache_set(struct cache_se
+ 	c->cache->sb.last_mount = (u32)ktime_get_real_seconds();
+ 	bcache_write_super(c);
+ 
++	if (bch_has_feature_obso_large_bucket(&c->cache->sb))
++		pr_err("Detect obsoleted large bucket layout, all attached bcache device will be read-only\n");
++
+ 	list_for_each_entry_safe(dc, t, &uncached_devices, list)
+ 		bch_cached_dev_attach(dc, c, NULL);
+ 
+From c6174c0e058fc0a54e0b9787c44cb24b0a8d0217 Mon Sep 17 00:00:00 2001
+From: Christophe JAILLET <christophe.jaillet@wanadoo.fr>
+Date: Mon, 28 Dec 2020 14:03:02 +0200
+Subject: interconnect: imx: Add a missing of_node_put after of_device_is_available
+
+From: Christophe JAILLET <christophe.jaillet@wanadoo.fr>
+
+commit c6174c0e058fc0a54e0b9787c44cb24b0a8d0217 upstream.
+
+Add an 'of_node_put()' call when a tested device node is not available.
+
+Fixes: f0d8048525d7 ("interconnect: Add imx core driver")
+Signed-off-by: Christophe JAILLET <christophe.jaillet@wanadoo.fr>
+Link: https://lore.kernel.org/r/20201206121304.29381-1-christophe.jaillet@wanadoo.fr
+Signed-off-by: Georgi Djakov <georgi.djakov@linaro.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/interconnect/imx/imx.c |    1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/drivers/interconnect/imx/imx.c
++++ b/drivers/interconnect/imx/imx.c
+@@ -99,6 +99,7 @@ static int imx_icc_node_init_qos(struct
+ 		if (!dn || !of_device_is_available(dn)) {
+ 			dev_warn(dev, "Missing property %s, skip scaling %s\n",
+ 				 adj->phandle_name, node->name);
++			of_node_put(dn);
+ 			return 0;
+ 		}
+ 
+From 512d4a26abdbd11c6ffa03032740e5ab3c62c55b Mon Sep 17 00:00:00 2001
+From: Arnd Bergmann <arnd@arndb.de>
+Date: Mon, 28 Dec 2020 14:03:02 +0200
+Subject: interconnect: qcom: fix rpmh link failures
+
+From: Arnd Bergmann <arnd@arndb.de>
+
+commit 512d4a26abdbd11c6ffa03032740e5ab3c62c55b upstream.
+
+When CONFIG_COMPILE_TEST is set, it is possible to build some
+of the interconnect drivers into the kernel while their dependencies
+are loadable modules, which is bad:
+
+arm-linux-gnueabi-ld: drivers/interconnect/qcom/bcm-voter.o: in function `qcom_icc_bcm_voter_commit':
+(.text+0x1f8): undefined reference to `rpmh_invalidate'
+arm-linux-gnueabi-ld: (.text+0x20c): undefined reference to `rpmh_write_batch'
+arm-linux-gnueabi-ld: (.text+0x2b0): undefined reference to `rpmh_write_batch'
+arm-linux-gnueabi-ld: (.text+0x2e8): undefined reference to `rpmh_write_batch'
+arm-linux-gnueabi-ld: drivers/interconnect/qcom/icc-rpmh.o: in function `qcom_icc_bcm_init':
+(.text+0x2ac): undefined reference to `cmd_db_read_addr'
+arm-linux-gnueabi-ld: (.text+0x2c8): undefined reference to `cmd_db_read_aux_data'
+
+The exact dependencies are a bit complicated, so split them out into a
+hidden Kconfig symbol that all drivers can in turn depend on to get it
+right.
+
+Fixes: 976daac4a1c5 ("interconnect: qcom: Consolidate interconnect RPMh support")
+Signed-off-by: Arnd Bergmann <arnd@arndb.de>
+Reviewed-by: Bjorn Andersson <bjorn.andersson@linaro.org>
+Link: https://lore.kernel.org/r/20201204165030.3747484-1-arnd@kernel.org
+Signed-off-by: Georgi Djakov <georgi.djakov@linaro.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/interconnect/qcom/Kconfig |   23 +++++++++++++++--------
+ 1 file changed, 15 insertions(+), 8 deletions(-)
+
+--- a/drivers/interconnect/qcom/Kconfig
++++ b/drivers/interconnect/qcom/Kconfig
+@@ -42,13 +42,23 @@ config INTERCONNECT_QCOM_QCS404
+ 	  This is a driver for the Qualcomm Network-on-Chip on qcs404-based
+ 	  platforms.
+ 
++config INTERCONNECT_QCOM_RPMH_POSSIBLE
++	tristate
++	default INTERCONNECT_QCOM
++	depends on QCOM_RPMH || (COMPILE_TEST && !QCOM_RPMH)
++	depends on QCOM_COMMAND_DB || (COMPILE_TEST && !QCOM_COMMAND_DB)
++	depends on OF || COMPILE_TEST
++	help
++	  Compile-testing RPMH drivers is possible on other platforms,
++	  but in order to avoid link failures, drivers must not be built-in
++	  when QCOM_RPMH or QCOM_COMMAND_DB are loadable modules
++
+ config INTERCONNECT_QCOM_RPMH
+ 	tristate
+ 
+ config INTERCONNECT_QCOM_SC7180
+ 	tristate "Qualcomm SC7180 interconnect driver"
+-	depends on INTERCONNECT_QCOM
+-	depends on (QCOM_RPMH && QCOM_COMMAND_DB && OF) || COMPILE_TEST
++	depends on INTERCONNECT_QCOM_RPMH_POSSIBLE
+ 	select INTERCONNECT_QCOM_RPMH
+ 	select INTERCONNECT_QCOM_BCM_VOTER
+ 	help
+@@ -57,8 +67,7 @@ config INTERCONNECT_QCOM_SC7180
+ 
+ config INTERCONNECT_QCOM_SDM845
+ 	tristate "Qualcomm SDM845 interconnect driver"
+-	depends on INTERCONNECT_QCOM
+-	depends on (QCOM_RPMH && QCOM_COMMAND_DB && OF) || COMPILE_TEST
++	depends on INTERCONNECT_QCOM_RPMH_POSSIBLE
+ 	select INTERCONNECT_QCOM_RPMH
+ 	select INTERCONNECT_QCOM_BCM_VOTER
+ 	help
+@@ -67,8 +76,7 @@ config INTERCONNECT_QCOM_SDM845
+ 
+ config INTERCONNECT_QCOM_SM8150
+ 	tristate "Qualcomm SM8150 interconnect driver"
+-	depends on INTERCONNECT_QCOM
+-	depends on (QCOM_RPMH && QCOM_COMMAND_DB && OF) || COMPILE_TEST
++	depends on INTERCONNECT_QCOM_RPMH_POSSIBLE
+ 	select INTERCONNECT_QCOM_RPMH
+ 	select INTERCONNECT_QCOM_BCM_VOTER
+ 	help
+@@ -77,8 +85,7 @@ config INTERCONNECT_QCOM_SM8150
+ 
+ config INTERCONNECT_QCOM_SM8250
+ 	tristate "Qualcomm SM8250 interconnect driver"
+-	depends on INTERCONNECT_QCOM
+-	depends on (QCOM_RPMH && QCOM_COMMAND_DB && OF) || COMPILE_TEST
++	depends on INTERCONNECT_QCOM_RPMH_POSSIBLE
+ 	select INTERCONNECT_QCOM_RPMH
+ 	select INTERCONNECT_QCOM_BCM_VOTER
+ 	help
+From 33cbd54dc515cc04b5a603603414222b4bb1448d Mon Sep 17 00:00:00 2001
+From: Christophe JAILLET <christophe.jaillet@wanadoo.fr>
+Date: Sat, 19 Dec 2020 13:47:18 +0100
+Subject: dmaengine: mediatek: mtk-hsdma: Fix a resource leak in the error handling path of the probe function
+
+From: Christophe JAILLET <christophe.jaillet@wanadoo.fr>
+
+commit 33cbd54dc515cc04b5a603603414222b4bb1448d upstream.
+
+'mtk_hsdma_hw_deinit()' should be called in the error handling path of the
+probe function to undo a previous 'mtk_hsdma_hw_init()' call, as already
+done in the remove function.
+
+Fixes: 548c4597e984 ("dmaengine: mediatek: Add MediaTek High-Speed DMA controller for MT7622 and MT7623 SoC")
+Signed-off-by: Christophe JAILLET <christophe.jaillet@wanadoo.fr>
+Link: https://lore.kernel.org/r/20201219124718.182664-1-christophe.jaillet@wanadoo.fr
+Signed-off-by: Vinod Koul <vkoul@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/dma/mediatek/mtk-hsdma.c |    1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/drivers/dma/mediatek/mtk-hsdma.c
++++ b/drivers/dma/mediatek/mtk-hsdma.c
+@@ -1007,6 +1007,7 @@ static int mtk_hsdma_probe(struct platfo
+ 	return 0;
+ 
+ err_free:
++	mtk_hsdma_hw_deinit(hsdma);
+ 	of_dma_controller_free(pdev->dev.of_node);
+ err_unregister:
+ 	dma_async_device_unregister(dd);
+From d645148cc82ca7fbacaa601414a552184e9c6dd3 Mon Sep 17 00:00:00 2001
+From: Christophe JAILLET <christophe.jaillet@wanadoo.fr>
+Date: Sat, 19 Dec 2020 14:28:00 +0100
+Subject: dmaengine: milbeaut-xdmac: Fix a resource leak in the error handling path of the probe function
+
+From: Christophe JAILLET <christophe.jaillet@wanadoo.fr>
+
+commit d645148cc82ca7fbacaa601414a552184e9c6dd3 upstream.
+
+'disable_xdmac()' should be called in the error handling path of the
+probe function to undo a previous 'enable_xdmac()' call, as already
+done in the remove function.
+
+Fixes: a6e9be055d47 ("dmaengine: milbeaut-xdmac: Add XDMAC driver for Milbeaut platforms")
+Signed-off-by: Christophe JAILLET <christophe.jaillet@wanadoo.fr>
+Link: https://lore.kernel.org/r/20201219132800.183254-1-christophe.jaillet@wanadoo.fr
+Signed-off-by: Vinod Koul <vkoul@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/dma/milbeaut-xdmac.c |    4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+--- a/drivers/dma/milbeaut-xdmac.c
++++ b/drivers/dma/milbeaut-xdmac.c
+@@ -351,7 +351,7 @@ static int milbeaut_xdmac_probe(struct p
+ 
+ 	ret = dma_async_device_register(ddev);
+ 	if (ret)
+-		return ret;
++		goto disable_xdmac;
+ 
+ 	ret = of_dma_controller_register(dev->of_node,
+ 					 of_dma_simple_xlate, mdev);
+@@ -364,6 +364,8 @@ static int milbeaut_xdmac_probe(struct p
+ 
+ unregister_dmac:
+ 	dma_async_device_unregister(ddev);
++disable_xdmac:
++	disable_xdmac(mdev);
+ 	return ret;
+ }
+ 
+From 99974aedbd73523969afb09f33c6e3047cd0ddae Mon Sep 17 00:00:00 2001
+From: Shravya Kumbham <shravya.kumbham@xilinx.com>
+Date: Wed, 23 Dec 2020 16:51:00 +0530
+Subject: dmaengine: xilinx_dma: check dma_async_device_register return value
+
+From: Shravya Kumbham <shravya.kumbham@xilinx.com>
+
+commit 99974aedbd73523969afb09f33c6e3047cd0ddae upstream.
+
+dma_async_device_register() can return non-zero error code. Add
+condition to check the return value of dma_async_device_register
+function and handle the error path.
+
+Addresses-Coverity: Event check_return.
+Fixes: 9cd4360de609 ("dma: Add Xilinx AXI Video Direct Memory Access Engine driver support")
+Signed-off-by: Shravya Kumbham <shravya.kumbham@xilinx.com>
+Signed-off-by: Radhey Shyam Pandey <radhey.shyam.pandey@xilinx.com>
+Link: https://lore.kernel.org/r/1608722462-29519-2-git-send-email-radhey.shyam.pandey@xilinx.com
+Signed-off-by: Vinod Koul <vkoul@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/dma/xilinx/xilinx_dma.c |    6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+--- a/drivers/dma/xilinx/xilinx_dma.c
++++ b/drivers/dma/xilinx/xilinx_dma.c
+@@ -3112,7 +3112,11 @@ static int xilinx_dma_probe(struct platf
+ 	}
+ 
+ 	/* Register the DMA engine with the core */
+-	dma_async_device_register(&xdev->common);
++	err = dma_async_device_register(&xdev->common);
++	if (err) {
++		dev_err(xdev->dev, "failed to register the dma device\n");
++		goto error;
++	}
+ 
+ 	err = of_dma_controller_register(node, of_dma_xilinx_xlate,
+ 					 xdev);
+From faeb0731be0a31e2246b21a85fa7dabbd750101d Mon Sep 17 00:00:00 2001
+From: Shravya Kumbham <shravya.kumbham@xilinx.com>
+Date: Wed, 23 Dec 2020 16:51:01 +0530
+Subject: dmaengine: xilinx_dma: fix incompatible param warning in _child_probe()
+
+From: Shravya Kumbham <shravya.kumbham@xilinx.com>
+
+commit faeb0731be0a31e2246b21a85fa7dabbd750101d upstream.
+
+In xilinx_dma_child_probe function, the nr_channels variable is
+passed to of_property_read_u32() which expects an u32 return value
+pointer. Modify the nr_channels variable type from int to u32 to
+fix the incompatible parameter coverity warning.
+
+Addresses-Coverity: Event incompatible_param.
+Fixes: 1a9e7a03c761 ("dmaengine: vdma: Add support for mulit-channel dma mode")
+Signed-off-by: Shravya Kumbham <shravya.kumbham@xilinx.com>
+Signed-off-by: Radhey Shyam Pandey <radhey.shyam.pandey@xilinx.com>
+Link: https://lore.kernel.org/r/1608722462-29519-3-git-send-email-radhey.shyam.pandey@xilinx.com
+Signed-off-by: Vinod Koul <vkoul@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/dma/xilinx/xilinx_dma.c |    3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+--- a/drivers/dma/xilinx/xilinx_dma.c
++++ b/drivers/dma/xilinx/xilinx_dma.c
+@@ -2900,7 +2900,8 @@ static int xilinx_dma_chan_probe(struct
+ static int xilinx_dma_child_probe(struct xilinx_dma_device *xdev,
+ 				    struct device_node *node)
+ {
+-	int ret, i, nr_channels = 1;
++	int ret, i;
++	u32 nr_channels = 1;
+ 
+ 	ret = of_property_read_u32(node, "dma-channels", &nr_channels);
+ 	if (xdev->dma_config->dmatype == XDMA_TYPE_AXIMCDMA && ret < 0)
+From 2d5efea64472469117dc1a9a39530069e95b21e9 Mon Sep 17 00:00:00 2001
+From: Shravya Kumbham <shravya.kumbham@xilinx.com>
+Date: Wed, 23 Dec 2020 16:51:02 +0530
+Subject: dmaengine: xilinx_dma: fix mixed_enum_type coverity warning
+
+From: Shravya Kumbham <shravya.kumbham@xilinx.com>
+
+commit 2d5efea64472469117dc1a9a39530069e95b21e9 upstream.
+
+Typecast the fls(width -1) with (enum dmaengine_alignment) in
+xilinx_dma_chan_probe function to fix the coverity warning.
+
+Addresses-Coverity: Event mixed_enum_type.
+Fixes: 9cd4360de609 ("dma: Add Xilinx AXI Video Direct Memory Access Engine driver support")
+Signed-off-by: Shravya Kumbham <shravya.kumbham@xilinx.com>
+Signed-off-by: Radhey Shyam Pandey <radhey.shyam.pandey@xilinx.com>
+Link: https://lore.kernel.org/r/1608722462-29519-4-git-send-email-radhey.shyam.pandey@xilinx.com
+Signed-off-by: Vinod Koul <vkoul@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/dma/xilinx/xilinx_dma.c |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/drivers/dma/xilinx/xilinx_dma.c
++++ b/drivers/dma/xilinx/xilinx_dma.c
+@@ -2781,7 +2781,7 @@ static int xilinx_dma_chan_probe(struct
+ 		has_dre = false;
+ 
+ 	if (!has_dre)
+-		xdev->common.copy_align = fls(width - 1);
++		xdev->common.copy_align = (enum dmaengine_alignment)fls(width - 1);
+ 
+ 	if (of_device_is_compatible(node, "xlnx,axi-vdma-mm2s-channel") ||
+ 	    of_device_is_compatible(node, "xlnx,axi-dma-mm2s-channel") ||
+From 095507dc1350b3a2b8b39fdc05edba0c10859eca Mon Sep 17 00:00:00 2001
+From: Nicolas Saenz Julienne <nsaenzjulienne@suse.de>
+Date: Fri, 18 Dec 2020 17:33:07 +0100
+Subject: arm64: mm: Fix ARCH_LOW_ADDRESS_LIMIT when !CONFIG_ZONE_DMA
+
+From: Nicolas Saenz Julienne <nsaenzjulienne@suse.de>
+
+commit 095507dc1350b3a2b8b39fdc05edba0c10859eca upstream.
+
+Systems configured with CONFIG_ZONE_DMA32, CONFIG_ZONE_NORMAL and
+!CONFIG_ZONE_DMA will fail to properly setup ARCH_LOW_ADDRESS_LIMIT. The
+limit will default to ~0ULL, effectively spanning the whole memory,
+which is too high for a configuration that expects low memory to be
+capped at 4GB.
+
+Fix ARCH_LOW_ADDRESS_LIMIT by falling back to arm64_dma32_phys_limit
+when arm64_dma_phys_limit isn't set. arm64_dma32_phys_limit will honour
+CONFIG_ZONE_DMA32, or span the entire memory when not enabled.
+
+Fixes: 1a8e1cef7603 ("arm64: use both ZONE_DMA and ZONE_DMA32")
+Signed-off-by: Nicolas Saenz Julienne <nsaenzjulienne@suse.de>
+Link: https://lore.kernel.org/r/20201218163307.10150-1-nsaenzjulienne@suse.de
+Signed-off-by: Catalin Marinas <catalin.marinas@arm.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ arch/arm64/include/asm/processor.h |    3 ++-
+ arch/arm64/mm/init.c               |    2 +-
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+--- a/arch/arm64/include/asm/processor.h
++++ b/arch/arm64/include/asm/processor.h
+@@ -96,7 +96,8 @@
+ #endif /* CONFIG_ARM64_FORCE_52BIT */
+ 
+ extern phys_addr_t arm64_dma_phys_limit;
+-#define ARCH_LOW_ADDRESS_LIMIT	(arm64_dma_phys_limit - 1)
++extern phys_addr_t arm64_dma32_phys_limit;
++#define ARCH_LOW_ADDRESS_LIMIT	((arm64_dma_phys_limit ? : arm64_dma32_phys_limit) - 1)
+ 
+ struct debug_info {
+ #ifdef CONFIG_HAVE_HW_BREAKPOINT
+--- a/arch/arm64/mm/init.c
++++ b/arch/arm64/mm/init.c
+@@ -60,7 +60,7 @@ EXPORT_SYMBOL(memstart_addr);
+  * bit addressable memory area.
+  */
+ phys_addr_t arm64_dma_phys_limit __ro_after_init;
+-static phys_addr_t arm64_dma32_phys_limit __ro_after_init;
++phys_addr_t arm64_dma32_phys_limit __ro_after_init;
+ 
+ #ifdef CONFIG_KEXEC_CORE
+ /*
+From 2860d45a589818dd8ffd90cdc4bcf77f36a5a6be Mon Sep 17 00:00:00 2001
+From: Arnd Bergmann <arnd@arndb.de>
+Date: Sun, 3 Jan 2021 22:36:17 +0100
+Subject: qed: select CONFIG_CRC32
+
+From: Arnd Bergmann <arnd@arndb.de>
+
+commit 2860d45a589818dd8ffd90cdc4bcf77f36a5a6be upstream.
+
+Without this, the driver fails to link:
+
+lpc_eth.c:(.text+0x1934): undefined reference to `crc32_le'
+arm-linux-gnueabi-ld: drivers/net/ethernet/qlogic/qed/qed_debug.o: in function `qed_grc_dump':
+qed_debug.c:(.text+0x4068): undefined reference to `crc32_le'
+arm-linux-gnueabi-ld: drivers/net/ethernet/qlogic/qed/qed_debug.o: in function `qed_idle_chk_dump':
+qed_debug.c:(.text+0x51fc): undefined reference to `crc32_le'
+arm-linux-gnueabi-ld: drivers/net/ethernet/qlogic/qed/qed_debug.o: in function `qed_mcp_trace_dump':
+qed_debug.c:(.text+0x6000): undefined reference to `crc32_le'
+arm-linux-gnueabi-ld: drivers/net/ethernet/qlogic/qed/qed_debug.o: in function `qed_dbg_reg_fifo_dump':
+qed_debug.c:(.text+0x66cc): undefined reference to `crc32_le'
+arm-linux-gnueabi-ld: drivers/net/ethernet/qlogic/qed/qed_debug.o:qed_debug.c:(.text+0x6aa4): more undefined references to `crc32_le' follow
+
+Fixes: 7a4b21b7d1f0 ("qed: Add nvram selftest")
+Signed-off-by: Arnd Bergmann <arnd@arndb.de>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/net/ethernet/qlogic/Kconfig |    1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/drivers/net/ethernet/qlogic/Kconfig
++++ b/drivers/net/ethernet/qlogic/Kconfig
+@@ -78,6 +78,7 @@ config QED
+ 	depends on PCI
+ 	select ZLIB_INFLATE
+ 	select CRC8
++	select CRC32
+ 	select NET_DEVLINK
+ 	help
+ 	  This enables the support for Marvell FastLinQ adapters family.
+From f9d6f94132f01d2a552dcbab54fa56496638186d Mon Sep 17 00:00:00 2001
+From: Arnd Bergmann <arnd@arndb.de>
+Date: Sun, 3 Jan 2021 22:36:18 +0100
+Subject: phy: dp83640: select CONFIG_CRC32
+
+From: Arnd Bergmann <arnd@arndb.de>
+
+commit f9d6f94132f01d2a552dcbab54fa56496638186d upstream.
+
+Without crc32, this driver fails to link:
+
+arm-linux-gnueabi-ld: drivers/net/phy/dp83640.o: in function `match':
+dp83640.c:(.text+0x476c): undefined reference to `crc32_le'
+
+Fixes: 539e44d26855 ("dp83640: Include hash in timestamp/packet matching")
+Signed-off-by: Arnd Bergmann <arnd@arndb.de>
+Reviewed-by: Andrew Lunn <andrew@lunn.ch>
+Acked-by: Richard Cochran <richardcochran@gmail.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/ptp/Kconfig |    1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/drivers/ptp/Kconfig
++++ b/drivers/ptp/Kconfig
+@@ -64,6 +64,7 @@ config DP83640_PHY
+ 	depends on NETWORK_PHY_TIMESTAMPING
+ 	depends on PHYLIB
+ 	depends on PTP_1588_CLOCK
++	select CRC32
+ 	help
+ 	  Supports the DP83640 PHYTER with IEEE 1588 features.
+ 
+From e186620d7bf11b274b985b839c38266d7918cc05 Mon Sep 17 00:00:00 2001
+From: Arnd Bergmann <arnd@arndb.de>
+Date: Sun, 3 Jan 2021 22:36:20 +0100
+Subject: wil6210: select CONFIG_CRC32
+
+From: Arnd Bergmann <arnd@arndb.de>
+
+commit e186620d7bf11b274b985b839c38266d7918cc05 upstream.
+
+Without crc32, the driver fails to link:
+
+arm-linux-gnueabi-ld: drivers/net/wireless/ath/wil6210/fw.o: in function `wil_fw_verify':
+fw.c:(.text+0x74c): undefined reference to `crc32_le'
+arm-linux-gnueabi-ld: drivers/net/wireless/ath/wil6210/fw.o:fw.c:(.text+0x758): more undefined references to `crc32_le' follow
+
+Fixes: 151a9706503f ("wil6210: firmware download")
+Signed-off-by: Arnd Bergmann <arnd@arndb.de>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/net/wireless/ath/wil6210/Kconfig |    1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/drivers/net/wireless/ath/wil6210/Kconfig
++++ b/drivers/net/wireless/ath/wil6210/Kconfig
+@@ -2,6 +2,7 @@
+ config WIL6210
+ 	tristate "Wilocity 60g WiFi card wil6210 support"
+ 	select WANT_DEV_COREDUMP
++	select CRC32
+ 	depends on CFG80211
+ 	depends on PCI
+ 	default n
+From 36a106a4c1c100d55ba3d32a21ef748cfcd4fa99 Mon Sep 17 00:00:00 2001
+From: Arnd Bergmann <arnd@arndb.de>
+Date: Sun, 3 Jan 2021 22:42:39 +0100
+Subject: block: rsxx: select CONFIG_CRC32
+
+From: Arnd Bergmann <arnd@arndb.de>
+
+commit 36a106a4c1c100d55ba3d32a21ef748cfcd4fa99 upstream.
+
+Without crc32, the driver fails to link:
+
+arm-linux-gnueabi-ld: drivers/block/rsxx/config.o: in function `rsxx_load_config':
+config.c:(.text+0x124): undefined reference to `crc32_le'
+
+Fixes: 8722ff8cdbfa ("block: IBM RamSan 70/80 device driver")
+Signed-off-by: Arnd Bergmann <arnd@arndb.de>
+Signed-off-by: Jens Axboe <axboe@kernel.dk>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/block/Kconfig |    1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/drivers/block/Kconfig
++++ b/drivers/block/Kconfig
+@@ -451,6 +451,7 @@ config BLK_DEV_RBD
+ config BLK_DEV_RSXX
+ 	tristate "IBM Flash Adapter 900GB Full Height PCIe Device Driver"
+ 	depends on PCI
++	select CRC32
+ 	help
+ 	  Device driver for IBM's high speed PCIe SSD
+ 	  storage device: Flash Adapter 900GB Full Height.
+From 19cd3403cb0d522dd5e10188eef85817de29e26e Mon Sep 17 00:00:00 2001
+From: Arnd Bergmann <arnd@arndb.de>
+Date: Sun, 3 Jan 2021 22:43:09 +0100
+Subject: lightnvm: select CONFIG_CRC32
+
+From: Arnd Bergmann <arnd@arndb.de>
+
+commit 19cd3403cb0d522dd5e10188eef85817de29e26e upstream.
+
+Without CRC32 support, this fails to link:
+
+arm-linux-gnueabi-ld: drivers/lightnvm/pblk-init.o: in function `pblk_init':
+pblk-init.c:(.text+0x2654): undefined reference to `crc32_le'
+arm-linux-gnueabi-ld: drivers/lightnvm/pblk-init.o: in function `pblk_exit':
+pblk-init.c:(.text+0x2a7c): undefined reference to `crc32_le'
+
+Fixes: a4bd217b4326 ("lightnvm: physical block device (pblk) target")
+Signed-off-by: Arnd Bergmann <arnd@arndb.de>
+Signed-off-by: Jens Axboe <axboe@kernel.dk>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/lightnvm/Kconfig |    1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/drivers/lightnvm/Kconfig
++++ b/drivers/lightnvm/Kconfig
+@@ -19,6 +19,7 @@ if NVM
+ 
+ config NVM_PBLK
+ 	tristate "Physical Block Device Open-Channel SSD target"
++	select CRC32
+ 	help
+ 	  Allows an open-channel SSD to be exposed as a block device to the
+ 	  host. The target assumes the device exposes raw flash and must be
+From 4f8b848788f77c7f5c3bd98febce66b7aa14785f Mon Sep 17 00:00:00 2001
+From: Arnd Bergmann <arnd@arndb.de>
+Date: Sun, 3 Jan 2021 22:43:52 +0100
+Subject: zonefs: select CONFIG_CRC32
+
+From: Arnd Bergmann <arnd@arndb.de>
+
+commit 4f8b848788f77c7f5c3bd98febce66b7aa14785f upstream.
+
+When CRC32 is disabled, zonefs cannot be linked:
+
+ld: fs/zonefs/super.o: in function `zonefs_fill_super':
+
+Add a Kconfig 'select' statement for it.
+
+Fixes: 8dcc1a9d90c1 ("fs: New zonefs file system")
+Signed-off-by: Arnd Bergmann <arnd@arndb.de>
+Signed-off-by: Damien Le Moal <damien.lemoal@wdc.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ fs/zonefs/Kconfig |    1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/fs/zonefs/Kconfig
++++ b/fs/zonefs/Kconfig
+@@ -3,6 +3,7 @@ config ZONEFS_FS
+ 	depends on BLOCK
+ 	depends on BLK_DEV_ZONED
+ 	select FS_IOMAP
++	select CRC32
+ 	help
+ 	  zonefs is a simple file system which exposes zones of a zoned block
+ 	  device (e.g. host-managed or host-aware SMR disk drives) as files.
+From 1efd17e7acb6692bffc6c58718f41f27fdfd62f5 Mon Sep 17 00:00:00 2001
+From: Lu Baolu <baolu.lu@linux.intel.com>
+Date: Thu, 31 Dec 2020 08:53:19 +0800
+Subject: iommu/vt-d: Fix misuse of ALIGN in qi_flush_piotlb()
+
+From: Lu Baolu <baolu.lu@linux.intel.com>
+
+commit 1efd17e7acb6692bffc6c58718f41f27fdfd62f5 upstream.
+
+Use IS_ALIGNED() instead. Otherwise, an unaligned address will be ignored.
+
+Fixes: 33cd6e642d6a ("iommu/vt-d: Flush PASID-based iotlb for iova over first level")
+Signed-off-by: Lu Baolu <baolu.lu@linux.intel.com>
+Link: https://lore.kernel.org/r/20201231005323.2178523-1-baolu.lu@linux.intel.com
+Signed-off-by: Will Deacon <will@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/iommu/intel/dmar.c |    4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+--- a/drivers/iommu/intel/dmar.c
++++ b/drivers/iommu/intel/dmar.c
+@@ -1461,8 +1461,8 @@ void qi_flush_piotlb(struct intel_iommu
+ 		int mask = ilog2(__roundup_pow_of_two(npages));
+ 		unsigned long align = (1ULL << (VTD_PAGE_SHIFT + mask));
+ 
+-		if (WARN_ON_ONCE(!ALIGN(addr, align)))
+-			addr &= ~(align - 1);
++		if (WARN_ON_ONCE(!IS_ALIGNED(addr, align)))
++			addr = ALIGN_DOWN(addr, align);
+ 
+ 		desc.qw0 = QI_EIOTLB_PASID(pasid) |
+ 				QI_EIOTLB_DID(did) |
+From ff2b46d7cff80d27d82f7f3252711f4ca1666129 Mon Sep 17 00:00:00 2001
+From: Dinghao Liu <dinghao.liu@zju.edu.cn>
+Date: Tue, 5 Jan 2021 13:18:37 +0800
+Subject: iommu/intel: Fix memleak in intel_irq_remapping_alloc
+
+From: Dinghao Liu <dinghao.liu@zju.edu.cn>
+
+commit ff2b46d7cff80d27d82f7f3252711f4ca1666129 upstream.
+
+When irq_domain_get_irq_data() or irqd_cfg() fails
+at i == 0, data allocated by kzalloc() has not been
+freed before returning, which leads to memleak.
+
+Fixes: b106ee63abcc ("irq_remapping/vt-d: Enhance Intel IR driver to support hierarchical irqdomains")
+Signed-off-by: Dinghao Liu <dinghao.liu@zju.edu.cn>
+Acked-by: Lu Baolu <baolu.lu@linux.intel.com>
+Link: https://lore.kernel.org/r/20210105051837.32118-1-dinghao.liu@zju.edu.cn
+Signed-off-by: Will Deacon <will@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/iommu/intel/irq_remapping.c |    2 ++
+ 1 file changed, 2 insertions(+)
+
+--- a/drivers/iommu/intel/irq_remapping.c
++++ b/drivers/iommu/intel/irq_remapping.c
+@@ -1390,6 +1390,8 @@ static int intel_irq_remapping_alloc(str
+ 		irq_data = irq_domain_get_irq_data(domain, virq + i);
+ 		irq_cfg = irqd_cfg(irq_data);
+ 		if (!irq_data || !irq_cfg) {
++			if (!i)
++				kfree(data);
+ 			ret = -EINVAL;
+ 			goto out_free_data;
+ 		}
+From 6f02b540d7597f357bc6ee711346761045d4e108 Mon Sep 17 00:00:00 2001
+From: Alan Maguire <alan.maguire@oracle.com>
+Date: Wed, 6 Jan 2021 15:59:06 +0000
+Subject: bpftool: Fix compilation failure for net.o with older glibc
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+From: Alan Maguire <alan.maguire@oracle.com>
+
+commit 6f02b540d7597f357bc6ee711346761045d4e108 upstream.
+
+For older glibc ~2.17, #include'ing both linux/if.h and net/if.h
+fails due to complaints about redefinition of interface flags:
+
+  CC       net.o
+In file included from net.c:13:0:
+/usr/include/linux/if.h:71:2: error: redeclaration of enumerator ‘IFF_UP’
+  IFF_UP    = 1<<0,  /* sysfs */
+  ^
+/usr/include/net/if.h:44:5: note: previous definition of ‘IFF_UP’ was here
+     IFF_UP = 0x1,  /* Interface is up.  */
+
+The issue was fixed in kernel headers in [1], but since compilation
+of net.c picks up system headers the problem can recur.
+
+Dropping #include <linux/if.h> resolves the issue and it is
+not needed for compilation anyhow.
+
+[1] https://lore.kernel.org/netdev/1461512707-23058-1-git-send-email-mikko.rapeli__34748.27880641$1462831734$gmane$org@iki.fi/
+
+Fixes: f6f3bac08ff9 ("tools/bpf: bpftool: add net support")
+Signed-off-by: Alan Maguire <alan.maguire@oracle.com>
+Signed-off-by: Andrii Nakryiko <andrii@kernel.org>
+Acked-by: Martin KaFai Lau <kafai@fb.com>
+Link: https://lore.kernel.org/bpf/1609948746-15369-1-git-send-email-alan.maguire@oracle.com
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ tools/bpf/bpftool/net.c |    1 -
+ 1 file changed, 1 deletion(-)
+
+--- a/tools/bpf/bpftool/net.c
++++ b/tools/bpf/bpftool/net.c
+@@ -11,7 +11,6 @@
+ #include <bpf/bpf.h>
+ #include <bpf/libbpf.h>
+ #include <net/if.h>
+-#include <linux/if.h>
+ #include <linux/rtnetlink.h>
+ #include <linux/socket.h>
+ #include <linux/tc_act/tc_bpf.h>
+From 5c11f7d9f843bdd24cd29b95401938bc3f168070 Mon Sep 17 00:00:00 2001
+From: Sagi Grimberg <sagi@grimberg.me>
+Date: Mon, 21 Dec 2020 00:03:39 -0800
+Subject: nvme-tcp: Fix possible race of io_work and direct send
+
+From: Sagi Grimberg <sagi@grimberg.me>
+
+commit 5c11f7d9f843bdd24cd29b95401938bc3f168070 upstream.
+
+We may send a request (with or without its data) from two paths:
+
+  1. From our I/O context nvme_tcp_io_work which is triggered from:
+    - queue_rq
+    - r2t reception
+    - socket data_ready and write_space callbacks
+  2. Directly from queue_rq if the send_list is empty (because we want to
+     save the context switch associated with scheduling our io_work).
+
+However, given that now we have the send_mutex, we may run into a race
+condition where none of these contexts will send the pending payload to
+the controller. Both io_work send path and queue_rq send path
+opportunistically attempt to acquire the send_mutex however queue_rq only
+attempts to send a single request, and if io_work context fails to
+acquire the send_mutex it will complete without rescheduling itself.
+
+The race can trigger with the following sequence:
+
+  1. queue_rq sends request (no incapsule data) and blocks
+  2. RX path receives r2t - prepares data PDU to send, adds h2cdata PDU
+     to the send_list and schedules io_work
+  3. io_work triggers and cannot acquire the send_mutex - because of (1),
+     ends without self rescheduling
+  4. queue_rq completes the send, and completes
+
+==> no context will send the h2cdata - timeout.
+
+Fix this by having queue_rq sending as much as it can from the send_list
+such that if it still has any left, its because the socket buffer is
+full and the socket write_space callback will trigger, thus guaranteeing
+that a context will be scheduled to send the h2cdata PDU.
+
+Fixes: db5ad6b7f8cd ("nvme-tcp: try to send request in queue_rq context")
+Reported-by: Potnuri Bharat Teja <bharat@chelsio.com>
+Reported-by: Samuel Jones <sjones@kalrayinc.com>
+Signed-off-by: Sagi Grimberg <sagi@grimberg.me>
+Tested-by: Potnuri Bharat Teja <bharat@chelsio.com>
+Signed-off-by: Christoph Hellwig <hch@lst.de>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/nvme/host/tcp.c |   12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+--- a/drivers/nvme/host/tcp.c
++++ b/drivers/nvme/host/tcp.c
+@@ -262,6 +262,16 @@ static inline void nvme_tcp_advance_req(
+ 	}
+ }
+ 
++static inline void nvme_tcp_send_all(struct nvme_tcp_queue *queue)
++{
++	int ret;
++
++	/* drain the send queue as much as we can... */
++	do {
++		ret = nvme_tcp_try_send(queue);
++	} while (ret > 0);
++}
++
+ static inline void nvme_tcp_queue_request(struct nvme_tcp_request *req,
+ 		bool sync, bool last)
+ {
+@@ -279,7 +289,7 @@ static inline void nvme_tcp_queue_reques
+ 	if (queue->io_cpu == smp_processor_id() &&
+ 	    sync && empty && mutex_trylock(&queue->send_mutex)) {
+ 		queue->more_requests = !last;
+-		nvme_tcp_try_send(queue);
++		nvme_tcp_send_all(queue);
+ 		queue->more_requests = false;
+ 		mutex_unlock(&queue->send_mutex);
+ 	} else if (last) {
+From 5b0bb12c58ac7d22e05b5bfdaa30a116c8c32e32 Mon Sep 17 00:00:00 2001
+From: Dinghao Liu <dinghao.liu@zju.edu.cn>
+Date: Mon, 21 Dec 2020 19:27:31 +0800
+Subject: net/mlx5e: Fix memleak in mlx5e_create_l2_table_groups
+
+From: Dinghao Liu <dinghao.liu@zju.edu.cn>
+
+commit 5b0bb12c58ac7d22e05b5bfdaa30a116c8c32e32 upstream.
+
+When mlx5_create_flow_group() fails, ft->g should be
+freed just like when kvzalloc() fails. The caller of
+mlx5e_create_l2_table_groups() does not catch this
+issue on failure, which leads to memleak.
+
+Fixes: 33cfaaa8f36f ("net/mlx5e: Split the main flow steering table")
+Signed-off-by: Dinghao Liu <dinghao.liu@zju.edu.cn>
+Reviewed-by: Leon Romanovsky <leonro@nvidia.com>
+Signed-off-by: Saeed Mahameed <saeedm@nvidia.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/net/ethernet/mellanox/mlx5/core/en_fs.c |    1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/drivers/net/ethernet/mellanox/mlx5/core/en_fs.c
++++ b/drivers/net/ethernet/mellanox/mlx5/core/en_fs.c
+@@ -1384,6 +1384,7 @@ err_destroy_groups:
+ 	ft->g[ft->num_groups] = NULL;
+ 	mlx5e_destroy_groups(ft);
+ 	kvfree(in);
++	kfree(ft->g);
+ 
+ 	return err;
+ }
+From 7a6eb072a9548492ead086f3e820e9aac71c7138 Mon Sep 17 00:00:00 2001
+From: Dinghao Liu <dinghao.liu@zju.edu.cn>
+Date: Mon, 28 Dec 2020 16:48:40 +0800
+Subject: net/mlx5e: Fix two double free cases
+
+From: Dinghao Liu <dinghao.liu@zju.edu.cn>
+
+commit 7a6eb072a9548492ead086f3e820e9aac71c7138 upstream.
+
+mlx5e_create_ttc_table_groups() frees ft->g on failure of
+kvzalloc(), but such failure will be caught by its caller
+in mlx5e_create_ttc_table() and ft->g will be freed again
+in mlx5e_destroy_flow_table(). The same issue also occurs
+in mlx5e_create_ttc_table_groups(). Set ft->g to NULL after
+kfree() to avoid double free.
+
+Fixes: 7b3722fa9ef6 ("net/mlx5e: Support RSS for GRE tunneled packets")
+Fixes: 33cfaaa8f36f ("net/mlx5e: Split the main flow steering table")
+Signed-off-by: Dinghao Liu <dinghao.liu@zju.edu.cn>
+Reviewed-by: Leon Romanovsky <leonro@nvidia.com>
+Signed-off-by: Saeed Mahameed <saeedm@nvidia.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/net/ethernet/mellanox/mlx5/core/en_fs.c |    2 ++
+ 1 file changed, 2 insertions(+)
+
+--- a/drivers/net/ethernet/mellanox/mlx5/core/en_fs.c
++++ b/drivers/net/ethernet/mellanox/mlx5/core/en_fs.c
+@@ -936,6 +936,7 @@ static int mlx5e_create_ttc_table_groups
+ 	in = kvzalloc(inlen, GFP_KERNEL);
+ 	if (!in) {
+ 		kfree(ft->g);
++		ft->g = NULL;
+ 		return -ENOMEM;
+ 	}
+ 
+@@ -1081,6 +1082,7 @@ static int mlx5e_create_inner_ttc_table_
+ 	in = kvzalloc(inlen, GFP_KERNEL);
+ 	if (!in) {
+ 		kfree(ft->g);
++		ft->g = NULL;
+ 		return -ENOMEM;
+ 	}
+ 
+From cffa4b2122f5f3e53cf3d529bbc74651f95856d5 Mon Sep 17 00:00:00 2001
+From: Xiaolei Wang <xiaolei.wang@windriver.com>
+Date: Tue, 29 Dec 2020 18:50:46 +0800
+Subject: regmap: debugfs: Fix a memory leak when calling regmap_attach_dev
+
+From: Xiaolei Wang <xiaolei.wang@windriver.com>
+
+commit cffa4b2122f5f3e53cf3d529bbc74651f95856d5 upstream.
+
+After initializing the regmap through
+syscon_regmap_lookup_by_compatible, then regmap_attach_dev to the
+device, because the debugfs_name has been allocated, there is no
+need to redistribute it again
+
+unreferenced object 0xd8399b80 (size 64):
+  comm "swapper/0", pid 1, jiffies 4294937641 (age 278.590s)
+  hex dump (first 32 bytes):
+	64 75 6d 6d 79 2d 69 6f 6d 75 78 63 2d 67 70 72
+dummy-iomuxc-gpr
+	40 32 30 65 34 30 30 30 00 7f 52 5b d8 7e 42 69
+@20e4000..R[.~Bi
+  backtrace:
+    [<ca384d6f>] kasprintf+0x2c/0x54
+    [<6ad3bbc2>] regmap_debugfs_init+0xdc/0x2fc
+    [<bc4181da>] __regmap_init+0xc38/0xd88
+    [<1f7e0609>] of_syscon_register+0x168/0x294
+    [<735e8766>] device_node_get_regmap+0x6c/0x98
+    [<d96c8982>] imx6ul_init_machine+0x20/0x88
+    [<0456565b>] customize_machine+0x1c/0x30
+    [<d07393d8>] do_one_initcall+0x80/0x3ac
+    [<7e584867>] kernel_init_freeable+0x170/0x1f0
+    [<80074741>] kernel_init+0x8/0x120
+    [<285d6f28>] ret_from_fork+0x14/0x20
+    [<00000000>] 0x0
+
+Fixes: 9b947a13e7f6 ("regmap: use debugfs even when no device")
+Signed-off-by: Xiaolei Wang <xiaolei.wang@windriver.com>
+Link: https://lore.kernel.org/r/20201229105046.41984-1-xiaolei.wang@windriver.com
+Signed-off-by: Mark Brown <broonie@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/base/regmap/regmap-debugfs.c |   11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+--- a/drivers/base/regmap/regmap-debugfs.c
++++ b/drivers/base/regmap/regmap-debugfs.c
+@@ -582,18 +582,25 @@ void regmap_debugfs_init(struct regmap *
+ 		devname = dev_name(map->dev);
+ 
+ 	if (name) {
+-		map->debugfs_name = kasprintf(GFP_KERNEL, "%s-%s",
++		if (!map->debugfs_name) {
++			map->debugfs_name = kasprintf(GFP_KERNEL, "%s-%s",
+ 					      devname, name);
++			if (!map->debugfs_name)
++				return;
++		}
+ 		name = map->debugfs_name;
+ 	} else {
+ 		name = devname;
+ 	}
+ 
+ 	if (!strcmp(name, "dummy")) {
+-		kfree(map->debugfs_name);
++		if (!map->debugfs_name)
++			kfree(map->debugfs_name);
+ 
+ 		map->debugfs_name = kasprintf(GFP_KERNEL, "dummy%d",
+ 						dummy_index);
++		if (!map->debugfs_name)
++				return;
+ 		name = map->debugfs_name;
+ 		dummy_index++;
+ 	}
+From 69931e11288520c250152180ecf9b6ac5e6e40ed Mon Sep 17 00:00:00 2001
+From: Arnd Bergmann <arnd@arndb.de>
+Date: Sun, 3 Jan 2021 22:36:23 +0100
+Subject: wan: ds26522: select CONFIG_BITREVERSE
+
+From: Arnd Bergmann <arnd@arndb.de>
+
+commit 69931e11288520c250152180ecf9b6ac5e6e40ed upstream.
+
+Without this, the driver runs into a link failure
+
+arm-linux-gnueabi-ld: drivers/net/wan/slic_ds26522.o: in function `slic_ds26522_probe':
+slic_ds26522.c:(.text+0x100c): undefined reference to `byte_rev_table'
+arm-linux-gnueabi-ld: slic_ds26522.c:(.text+0x1cdc): undefined reference to `byte_rev_table'
+arm-linux-gnueabi-ld: drivers/net/wan/slic_ds26522.o: in function `slic_write':
+slic_ds26522.c:(.text+0x1e4c): undefined reference to `byte_rev_table'
+
+Fixes: c37d4a0085c5 ("Maxim/driver: Add driver for maxim ds26522")
+Signed-off-by: Arnd Bergmann <arnd@arndb.de>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/net/wan/Kconfig |    1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/drivers/net/wan/Kconfig
++++ b/drivers/net/wan/Kconfig
+@@ -282,6 +282,7 @@ config SLIC_DS26522
+ 	tristate "Slic Maxim ds26522 card support"
+ 	depends on SPI
+ 	depends on FSL_SOC || ARCH_MXC || ARCH_LAYERSCAPE || COMPILE_TEST
++	select BITREVERSE
+ 	help
+ 	  This module initializes and configures the slic maxim card
+ 	  in T1 or E1 mode.
+From 45ba7b195a369f35cb39094fdb32efe5908b34ad Mon Sep 17 00:00:00 2001
+From: Shannon Zhao <shannon.zhao@linux.alibaba.com>
+Date: Mon, 4 Jan 2021 19:38:44 +0800
+Subject: arm64: cpufeature: remove non-exist CONFIG_KVM_ARM_HOST
+
+From: Shannon Zhao <shannon.zhao@linux.alibaba.com>
+
+commit 45ba7b195a369f35cb39094fdb32efe5908b34ad upstream.
+
+Commit d82755b2e781 ("KVM: arm64: Kill off CONFIG_KVM_ARM_HOST") deletes
+CONFIG_KVM_ARM_HOST option, it should use CONFIG_KVM instead.
+
+Just remove CONFIG_KVM_ARM_HOST here.
+
+Fixes: d82755b2e781 ("KVM: arm64: Kill off CONFIG_KVM_ARM_HOST")
+Signed-off-by: Shannon Zhao <shannon.zhao@linux.alibaba.com>
+Acked-by: Catalin Marinas <catalin.marinas@arm.com>
+Signed-off-by: Marc Zyngier <maz@kernel.org>
+Link: https://lore.kernel.org/r/1609760324-92271-1-git-send-email-shannon.zhao@linux.alibaba.com
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ arch/arm64/kernel/cpufeature.c |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/arch/arm64/kernel/cpufeature.c
++++ b/arch/arm64/kernel/cpufeature.c
+@@ -2552,7 +2552,7 @@ static void verify_hyp_capabilities(void
+ 	int parange, ipa_max;
+ 	unsigned int safe_vmid_bits, vmid_bits;
+ 
+-	if (!IS_ENABLED(CONFIG_KVM) || !IS_ENABLED(CONFIG_KVM_ARM_HOST))
++	if (!IS_ENABLED(CONFIG_KVM))
+ 		return;
+ 
+ 	safe_mmfr1 = read_sanitised_ftr_reg(SYS_ID_AA64MMFR1_EL1);
+From df6b92fa40050e59ea89784294bf6d04c0c47705 Mon Sep 17 00:00:00 2001
+From: Dmitry Baryshkov <dmitry.baryshkov@linaro.org>
+Date: Thu, 31 Dec 2020 15:23:46 +0300
+Subject: regulator: qcom-rpmh-regulator: correct hfsmps515 definition
+
+From: Dmitry Baryshkov <dmitry.baryshkov@linaro.org>
+
+commit df6b92fa40050e59ea89784294bf6d04c0c47705 upstream.
+
+According to the datasheet pm8009's HFS515 regulators have 16mV
+resolution rather than declared 1.6 mV. Correct the resolution.
+
+Signed-off-by: Dmitry Baryshkov <dmitry.baryshkov@linaro.org>
+Fixes: 06369bcc15a1 ("regulator: qcom-rpmh: Add support for SM8150")
+Reviewed-by: Vinod Koul <vkoul@kernel.org>
+Link: https://lore.kernel.org/r/20201231122348.637917-3-dmitry.baryshkov@linaro.org
+Signed-off-by: Mark Brown <broonie@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/regulator/qcom-rpmh-regulator.c |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/drivers/regulator/qcom-rpmh-regulator.c
++++ b/drivers/regulator/qcom-rpmh-regulator.c
+@@ -726,7 +726,7 @@ static const struct rpmh_vreg_hw_data pm
+ static const struct rpmh_vreg_hw_data pmic5_hfsmps515 = {
+ 	.regulator_type = VRM,
+ 	.ops = &rpmh_regulator_vrm_ops,
+-	.voltage_range = REGULATOR_LINEAR_RANGE(2800000, 0, 4, 1600),
++	.voltage_range = REGULATOR_LINEAR_RANGE(2800000, 0, 4, 16000),
+ 	.n_voltages = 5,
+ 	.pmic_mode_map = pmic_mode_map_pmic5_smps,
+ 	.of_map_mode = rpmh_regulator_pmic4_smps_of_map_mode,
+From 87508224485323ce2d4e7fb929ec80f51adcc238 Mon Sep 17 00:00:00 2001
+From: Stefan Chulski <stefanc@marvell.com>
+Date: Thu, 17 Dec 2020 16:52:15 +0200
+Subject: net: mvpp2: disable force link UP during port init procedure
+
+From: Stefan Chulski <stefanc@marvell.com>
+
+commit 87508224485323ce2d4e7fb929ec80f51adcc238 upstream.
+
+Force link UP can be enabled by bootloader during tftpboot
+and breaks NFS support.
+Force link UP disabled during port init procedure.
+
+Fixes: f84bf386f395 ("net: mvpp2: initialize the GoP")
+Signed-off-by: Stefan Chulski <stefanc@marvell.com>
+Acked-by: Marcin Wojtas <mw@semihalf.com>
+Link: https://lore.kernel.org/r/1608216735-14501-1-git-send-email-stefanc@marvell.com
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/net/ethernet/marvell/mvpp2/mvpp2_main.c |   14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+--- a/drivers/net/ethernet/marvell/mvpp2/mvpp2_main.c
++++ b/drivers/net/ethernet/marvell/mvpp2/mvpp2_main.c
+@@ -5480,7 +5480,7 @@ static int mvpp2_port_init(struct mvpp2_
+ 	struct mvpp2 *priv = port->priv;
+ 	struct mvpp2_txq_pcpu *txq_pcpu;
+ 	unsigned int thread;
+-	int queue, err;
++	int queue, err, val;
+ 
+ 	/* Checks for hardware constraints */
+ 	if (port->first_rxq + port->nrxqs >
+@@ -5494,6 +5494,18 @@ static int mvpp2_port_init(struct mvpp2_
+ 	mvpp2_egress_disable(port);
+ 	mvpp2_port_disable(port);
+ 
++	if (mvpp2_is_xlg(port->phy_interface)) {
++		val = readl(port->base + MVPP22_XLG_CTRL0_REG);
++		val &= ~MVPP22_XLG_CTRL0_FORCE_LINK_PASS;
++		val |= MVPP22_XLG_CTRL0_FORCE_LINK_DOWN;
++		writel(val, port->base + MVPP22_XLG_CTRL0_REG);
++	} else {
++		val = readl(port->base + MVPP2_GMAC_AUTONEG_CONFIG);
++		val &= ~MVPP2_GMAC_FORCE_LINK_PASS;
++		val |= MVPP2_GMAC_FORCE_LINK_DOWN;
++		writel(val, port->base + MVPP2_GMAC_AUTONEG_CONFIG);
++	}
++
+ 	port->tx_time_coal = MVPP2_TXDONE_COAL_USEC;
+ 
+ 	port->txqs = devm_kcalloc(dev, port->ntxqs, sizeof(*port->txqs),
+From 9397d66212cdf7a21c66523f1583e5d63a609e84 Mon Sep 17 00:00:00 2001
+From: Chris Wilson <chris@chris-wilson.co.uk>
+Date: Wed, 30 Dec 2020 20:23:09 +0000
+Subject: drm/i915/dp: Track pm_qos per connector
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+From: Chris Wilson <chris@chris-wilson.co.uk>
+
+commit 9397d66212cdf7a21c66523f1583e5d63a609e84 upstream.
+
+Since multiple connectors may run intel_dp_aux_xfer conncurrently, a
+single global pm_qos does not suffice. (One connector may disable the
+dma-latency boost prematurely while the second is still depending on
+it.) Instead of a single global pm_qos, track the pm_qos request for
+each intel_dp.
+
+v2: Move the pm_qos setup/teardown to intel_dp_aux_init/fini
+
+Fixes: 9ee32fea5fe8 ("drm/i915: irq-drive the dp aux communication")
+Signed-off-by: Chris Wilson <chris@chris-wilson.co.uk>
+Cc: Ville Syrjälä <ville.syrjala@linux.intel.com>
+Cc: Imre Deak <imre.deak@intel.com>
+Reviewed-by: Imre Deak <imre.deak@intel.com>
+Link: https://patchwork.freedesktop.org/patch/msgid/20201230202309.23982-1-chris@chris-wilson.co.uk
+(cherry picked from commit b3304591f14b437b6bccd8dbff06006c11837031)
+Signed-off-by: Jani Nikula <jani.nikula@intel.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/gpu/drm/i915/display/intel_display_types.h |    3 +++
+ drivers/gpu/drm/i915/display/intel_dp.c            |    8 ++++++--
+ drivers/gpu/drm/i915/i915_drv.c                    |    5 -----
+ drivers/gpu/drm/i915/i915_drv.h                    |    3 ---
+ 4 files changed, 9 insertions(+), 10 deletions(-)
+
+--- a/drivers/gpu/drm/i915/display/intel_display_types.h
++++ b/drivers/gpu/drm/i915/display/intel_display_types.h
+@@ -1382,6 +1382,9 @@ struct intel_dp {
+ 		bool ycbcr_444_to_420;
+ 	} dfp;
+ 
++	/* To control wakeup latency, e.g. for irq-driven dp aux transfers. */
++	struct pm_qos_request pm_qos;
++
+ 	/* Display stream compression testing */
+ 	bool force_dsc_en;
+ 
+--- a/drivers/gpu/drm/i915/display/intel_dp.c
++++ b/drivers/gpu/drm/i915/display/intel_dp.c
+@@ -1411,7 +1411,7 @@ intel_dp_aux_xfer(struct intel_dp *intel
+ 	 * lowest possible wakeup latency and so prevent the cpu from going into
+ 	 * deep sleep states.
+ 	 */
+-	cpu_latency_qos_update_request(&i915->pm_qos, 0);
++	cpu_latency_qos_update_request(&intel_dp->pm_qos, 0);
+ 
+ 	intel_dp_check_edp(intel_dp);
+ 
+@@ -1544,7 +1544,7 @@ done:
+ 
+ 	ret = recv_bytes;
+ out:
+-	cpu_latency_qos_update_request(&i915->pm_qos, PM_QOS_DEFAULT_VALUE);
++	cpu_latency_qos_update_request(&intel_dp->pm_qos, PM_QOS_DEFAULT_VALUE);
+ 
+ 	if (vdd)
+ 		edp_panel_vdd_off(intel_dp, false);
+@@ -1776,6 +1776,9 @@ static i915_reg_t skl_aux_data_reg(struc
+ static void
+ intel_dp_aux_fini(struct intel_dp *intel_dp)
+ {
++	if (cpu_latency_qos_request_active(&intel_dp->pm_qos))
++		cpu_latency_qos_remove_request(&intel_dp->pm_qos);
++
+ 	kfree(intel_dp->aux.name);
+ }
+ 
+@@ -1818,6 +1821,7 @@ intel_dp_aux_init(struct intel_dp *intel
+ 				       aux_ch_name(dig_port->aux_ch),
+ 				       port_name(encoder->port));
+ 	intel_dp->aux.transfer = intel_dp_aux_transfer;
++	cpu_latency_qos_add_request(&intel_dp->pm_qos, PM_QOS_DEFAULT_VALUE);
+ }
+ 
+ bool intel_dp_source_supports_hbr2(struct intel_dp *intel_dp)
+--- a/drivers/gpu/drm/i915/i915_drv.c
++++ b/drivers/gpu/drm/i915/i915_drv.c
+@@ -577,8 +577,6 @@ static int i915_driver_hw_probe(struct d
+ 
+ 	pci_set_master(pdev);
+ 
+-	cpu_latency_qos_add_request(&dev_priv->pm_qos, PM_QOS_DEFAULT_VALUE);
+-
+ 	intel_gt_init_workarounds(dev_priv);
+ 
+ 	/* On the 945G/GM, the chipset reports the MSI capability on the
+@@ -623,7 +621,6 @@ static int i915_driver_hw_probe(struct d
+ err_msi:
+ 	if (pdev->msi_enabled)
+ 		pci_disable_msi(pdev);
+-	cpu_latency_qos_remove_request(&dev_priv->pm_qos);
+ err_mem_regions:
+ 	intel_memory_regions_driver_release(dev_priv);
+ err_ggtt:
+@@ -645,8 +642,6 @@ static void i915_driver_hw_remove(struct
+ 
+ 	if (pdev->msi_enabled)
+ 		pci_disable_msi(pdev);
+-
+-	cpu_latency_qos_remove_request(&dev_priv->pm_qos);
+ }
+ 
+ /**
+--- a/drivers/gpu/drm/i915/i915_drv.h
++++ b/drivers/gpu/drm/i915/i915_drv.h
+@@ -892,9 +892,6 @@ struct drm_i915_private {
+ 
+ 	bool display_irqs_enabled;
+ 
+-	/* To control wakeup latency, e.g. for irq-driven dp aux transfers. */
+-	struct pm_qos_request pm_qos;
+-
+ 	/* Sideband mailbox protection */
+ 	struct mutex sb_lock;
+ 	struct pm_qos_request sb_qos;
+From 0d136f5cd9a7ba6ded7f8ff17e8b1ba680f37625 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Marek=20Beh=C3=BAn?= <kabel@kernel.org>
+Date: Tue, 5 Jan 2021 18:23:33 +0100
+Subject: net: mvneta: fix error message when MTU too large for XDP
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+From: Marek Behún <kabel@kernel.org>
+
+commit 0d136f5cd9a7ba6ded7f8ff17e8b1ba680f37625 upstream.
+
+The error message says that "Jumbo frames are not supported on XDP", but
+the code checks for mtu > MVNETA_MAX_RX_BUF_SIZE, not mtu > 1500.
+
+Fix this error message.
+
+Signed-off-by: Marek Behún <kabel@kernel.org>
+Fixes: 0db51da7a8e9 ("net: mvneta: add basic XDP support")
+Cc: Lorenzo Bianconi <lorenzo@kernel.org>
+Cc: Thomas Petazzoni <thomas.petazzoni@bootlin.com>
+Link: https://lore.kernel.org/r/20210105172333.21613-1-kabel@kernel.org
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/net/ethernet/marvell/mvneta.c |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/drivers/net/ethernet/marvell/mvneta.c
++++ b/drivers/net/ethernet/marvell/mvneta.c
+@@ -4409,7 +4409,7 @@ static int mvneta_xdp_setup(struct net_d
+ 	struct bpf_prog *old_prog;
+ 
+ 	if (prog && dev->mtu > MVNETA_MAX_RX_BUF_SIZE) {
+-		NL_SET_ERR_MSG_MOD(extack, "Jumbo frames not supported on XDP");
++		NL_SET_ERR_MSG_MOD(extack, "MTU too large for XDP");
+ 		return -EOPNOTSUPP;
+ 	}
+ 
+From a5c9ca76a1c61fb5e4c35de8eb25aa925b03c9e4 Mon Sep 17 00:00:00 2001
+From: Ido Schimmel <idosch@nvidia.com>
+Date: Thu, 7 Jan 2021 16:48:24 +0200
+Subject: selftests: fib_nexthops: Fix wrong mausezahn invocation
+
+From: Ido Schimmel <idosch@nvidia.com>
+
+commit a5c9ca76a1c61fb5e4c35de8eb25aa925b03c9e4 upstream.
+
+For IPv6 traffic, mausezahn needs to be invoked with '-6'. Otherwise an
+error is returned:
+
+ # ip netns exec me mausezahn veth1 -B 2001:db8:101::2 -A 2001:db8:91::1 -c 0 -t tcp "dp=1-1023, flags=syn"
+ Failed to set source IPv4 address. Please check if source is set to a valid IPv4 address.
+  Invalid command line parameters!
+
+Fixes: 7c741868ceab ("selftests: Add torture tests to nexthop tests")
+Signed-off-by: Ido Schimmel <idosch@nvidia.com>
+Reviewed-by: Petr Machata <petrm@nvidia.com>
+Reviewed-by: David Ahern <dsahern@kernel.org>
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ tools/testing/selftests/net/fib_nexthops.sh |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/tools/testing/selftests/net/fib_nexthops.sh
++++ b/tools/testing/selftests/net/fib_nexthops.sh
+@@ -869,7 +869,7 @@ ipv6_torture()
+ 	pid3=$!
+ 	ip netns exec me ping -f 2001:db8:101::2 >/dev/null 2>&1 &
+ 	pid4=$!
+-	ip netns exec me mausezahn veth1 -B 2001:db8:101::2 -A 2001:db8:91::1 -c 0 -t tcp "dp=1-1023, flags=syn" >/dev/null 2>&1 &
++	ip netns exec me mausezahn -6 veth1 -B 2001:db8:101::2 -A 2001:db8:91::1 -c 0 -t tcp "dp=1-1023, flags=syn" >/dev/null 2>&1 &
+ 	pid5=$!
+ 
+ 	sleep 300
+From 2a5f1b67ec577fb1544b563086e0377f095f88e2 Mon Sep 17 00:00:00 2001
+From: Marc Zyngier <maz@kernel.org>
+Date: Thu, 10 Dec 2020 08:30:59 +0000
+Subject: KVM: arm64: Don't access PMCR_EL0 when no PMU is available
+
+From: Marc Zyngier <maz@kernel.org>
+
+commit 2a5f1b67ec577fb1544b563086e0377f095f88e2 upstream.
+
+We reset the guest's view of PMCR_EL0 unconditionally, based on
+the host's view of this register. It is however legal for an
+implementation not to provide any PMU, resulting in an UNDEF.
+
+The obvious fix is to skip the reset of this shadow register
+when no PMU is available, sidestepping the issue entirely.
+If no PMU is available, the guest is not able to request
+a virtual PMU anyway, so not doing nothing is the right thing
+to do!
+
+It is unlikely that this bug can hit any HW implementation
+though, as they all provide a PMU. It has been found using nested
+virt with the host KVM not implementing the PMU itself.
+
+Fixes: ab9468340d2bc ("arm64: KVM: Add access handler for PMCR register")
+Reviewed-by: Alexandru Elisei <alexandru.elisei@arm.com>
+Signed-off-by: Marc Zyngier <maz@kernel.org>
+Link: https://lore.kernel.org/r/20201210083059.1277162-1-maz@kernel.org
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ arch/arm64/kvm/sys_regs.c |    4 ++++
+ 1 file changed, 4 insertions(+)
+
+--- a/arch/arm64/kvm/sys_regs.c
++++ b/arch/arm64/kvm/sys_regs.c
+@@ -663,6 +663,10 @@ static void reset_pmcr(struct kvm_vcpu *
+ {
+ 	u64 pmcr, val;
+ 
++	/* No PMU available, PMCR_EL0 may UNDEF... */
++	if (!kvm_arm_support_pmu_v3())
++		return;
++
+ 	pmcr = read_sysreg(pmcr_el0);
+ 	/*
+ 	 * Writable bits of PMCR_EL0 (ARMV8_PMU_PMCR_MASK) are reset to UNKNOWN
+From f09ced4053bc0a2094a12b60b646114c966ef4c6 Mon Sep 17 00:00:00 2001
+From: Magnus Karlsson <magnus.karlsson@intel.com>
+Date: Fri, 18 Dec 2020 14:45:24 +0100
+Subject: xsk: Fix race in SKB mode transmit with shared cq
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+From: Magnus Karlsson <magnus.karlsson@intel.com>
+
+commit f09ced4053bc0a2094a12b60b646114c966ef4c6 upstream.
+
+Fix a race when multiple sockets are simultaneously calling sendto()
+when the completion ring is shared in the SKB case. This is the case
+when you share the same netdev and queue id through the
+XDP_SHARED_UMEM bind flag. The problem is that multiple processes can
+be in xsk_generic_xmit() and call the backpressure mechanism in
+xskq_prod_reserve(xs->pool->cq). As this is a shared resource in this
+specific scenario, a race might occur since the rings are
+single-producer single-consumer.
+
+Fix this by moving the tx_completion_lock from the socket to the pool
+as the pool is shared between the sockets that share the completion
+ring. (The pool is not shared when this is not the case.) And then
+protect the accesses to xskq_prod_reserve() with this lock. The
+tx_completion_lock is renamed cq_lock to better reflect that it
+protects accesses to the potentially shared completion ring.
+
+Fixes: 35fcde7f8deb ("xsk: support for Tx")
+Reported-by: Xuan Zhuo <xuanzhuo@linux.alibaba.com>
+Signed-off-by: Magnus Karlsson <magnus.karlsson@intel.com>
+Signed-off-by: Daniel Borkmann <daniel@iogearbox.net>
+Acked-by: Björn Töpel <bjorn.topel@intel.com>
+Link: https://lore.kernel.org/bpf/20201218134525.13119-2-magnus.karlsson@gmail.com
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ include/net/xdp_sock.h      |    4 ----
+ include/net/xsk_buff_pool.h |    5 +++++
+ net/xdp/xsk.c               |    9 ++++++---
+ net/xdp/xsk_buff_pool.c     |    1 +
+ 4 files changed, 12 insertions(+), 7 deletions(-)
+
+--- a/include/net/xdp_sock.h
++++ b/include/net/xdp_sock.h
+@@ -58,10 +58,6 @@ struct xdp_sock {
+ 
+ 	struct xsk_queue *tx ____cacheline_aligned_in_smp;
+ 	struct list_head tx_list;
+-	/* Mutual exclusion of NAPI TX thread and sendmsg error paths
+-	 * in the SKB destructor callback.
+-	 */
+-	spinlock_t tx_completion_lock;
+ 	/* Protects generic receive. */
+ 	spinlock_t rx_lock;
+ 
+--- a/include/net/xsk_buff_pool.h
++++ b/include/net/xsk_buff_pool.h
+@@ -73,6 +73,11 @@ struct xsk_buff_pool {
+ 	bool dma_need_sync;
+ 	bool unaligned;
+ 	void *addrs;
++	/* Mutual exclusion of the completion ring in the SKB mode. Two cases to protect:
++	 * NAPI TX thread and sendmsg error paths in the SKB destructor callback and when
++	 * sockets share a single cq when the same netdev and queue id is shared.
++	 */
++	spinlock_t cq_lock;
+ 	struct xdp_buff_xsk *free_heads[];
+ };
+ 
+--- a/net/xdp/xsk.c
++++ b/net/xdp/xsk.c
+@@ -364,9 +364,9 @@ static void xsk_destruct_skb(struct sk_b
+ 	struct xdp_sock *xs = xdp_sk(skb->sk);
+ 	unsigned long flags;
+ 
+-	spin_lock_irqsave(&xs->tx_completion_lock, flags);
++	spin_lock_irqsave(&xs->pool->cq_lock, flags);
+ 	xskq_prod_submit_addr(xs->pool->cq, addr);
+-	spin_unlock_irqrestore(&xs->tx_completion_lock, flags);
++	spin_unlock_irqrestore(&xs->pool->cq_lock, flags);
+ 
+ 	sock_wfree(skb);
+ }
+@@ -378,6 +378,7 @@ static int xsk_generic_xmit(struct sock
+ 	bool sent_frame = false;
+ 	struct xdp_desc desc;
+ 	struct sk_buff *skb;
++	unsigned long flags;
+ 	int err = 0;
+ 
+ 	mutex_lock(&xs->mutex);
+@@ -409,10 +410,13 @@ static int xsk_generic_xmit(struct sock
+ 		 * if there is space in it. This avoids having to implement
+ 		 * any buffering in the Tx path.
+ 		 */
++		spin_lock_irqsave(&xs->pool->cq_lock, flags);
+ 		if (unlikely(err) || xskq_prod_reserve(xs->pool->cq)) {
++			spin_unlock_irqrestore(&xs->pool->cq_lock, flags);
+ 			kfree_skb(skb);
+ 			goto out;
+ 		}
++		spin_unlock_irqrestore(&xs->pool->cq_lock, flags);
+ 
+ 		skb->dev = xs->dev;
+ 		skb->priority = sk->sk_priority;
+@@ -1197,7 +1201,6 @@ static int xsk_create(struct net *net, s
+ 	xs->state = XSK_READY;
+ 	mutex_init(&xs->mutex);
+ 	spin_lock_init(&xs->rx_lock);
+-	spin_lock_init(&xs->tx_completion_lock);
+ 
+ 	INIT_LIST_HEAD(&xs->map_list);
+ 	spin_lock_init(&xs->map_list_lock);
+--- a/net/xdp/xsk_buff_pool.c
++++ b/net/xdp/xsk_buff_pool.c
+@@ -71,6 +71,7 @@ struct xsk_buff_pool *xp_create_and_assi
+ 	INIT_LIST_HEAD(&pool->free_list);
+ 	INIT_LIST_HEAD(&pool->xsk_tx_list);
+ 	spin_lock_init(&pool->xsk_tx_list_lock);
++	spin_lock_init(&pool->cq_lock);
+ 	refcount_set(&pool->users, 1);
+ 
+ 	pool->fq = xs->fq_tmp;
+From b1b95cb5c0a9694d47d5f845ba97e226cfda957d Mon Sep 17 00:00:00 2001
+From: Magnus Karlsson <magnus.karlsson@intel.com>
+Date: Fri, 18 Dec 2020 14:45:25 +0100
+Subject: xsk: Rollback reservation at NETDEV_TX_BUSY
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+From: Magnus Karlsson <magnus.karlsson@intel.com>
+
+commit b1b95cb5c0a9694d47d5f845ba97e226cfda957d upstream.
+
+Rollback the reservation in the completion ring when we get a
+NETDEV_TX_BUSY. When this error is received from the driver, we are
+supposed to let the user application retry the transmit again. And in
+order to do this, we need to roll back the failed send so it can be
+retried. Unfortunately, we did not cancel the reservation we had made
+in the completion ring. By not doing this, we actually make the
+completion ring one entry smaller per NETDEV_TX_BUSY error we get, and
+after enough of these errors the completion ring will be of size zero
+and transmit will stop working.
+
+Fix this by cancelling the reservation when we get a NETDEV_TX_BUSY
+error.
+
+Fixes: 642e450b6b59 ("xsk: Do not discard packet when NETDEV_TX_BUSY")
+Reported-by: Xuan Zhuo <xuanzhuo@linux.alibaba.com>
+Signed-off-by: Magnus Karlsson <magnus.karlsson@intel.com>
+Signed-off-by: Daniel Borkmann <daniel@iogearbox.net>
+Acked-by: Björn Töpel <bjorn.topel@intel.com>
+Link: https://lore.kernel.org/bpf/20201218134525.13119-3-magnus.karlsson@gmail.com
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ net/xdp/xsk.c       |    3 +++
+ net/xdp/xsk_queue.h |    5 +++++
+ 2 files changed, 8 insertions(+)
+
+--- a/net/xdp/xsk.c
++++ b/net/xdp/xsk.c
+@@ -428,6 +428,9 @@ static int xsk_generic_xmit(struct sock
+ 		if  (err == NETDEV_TX_BUSY) {
+ 			/* Tell user-space to retry the send */
+ 			skb->destructor = sock_wfree;
++			spin_lock_irqsave(&xs->pool->cq_lock, flags);
++			xskq_prod_cancel(xs->pool->cq);
++			spin_unlock_irqrestore(&xs->pool->cq_lock, flags);
+ 			/* Free skb without triggering the perf drop trace */
+ 			consume_skb(skb);
+ 			err = -EAGAIN;
+--- a/net/xdp/xsk_queue.h
++++ b/net/xdp/xsk_queue.h
+@@ -286,6 +286,11 @@ static inline bool xskq_prod_is_full(str
+ 	return !free_entries;
+ }
+ 
++static inline void xskq_prod_cancel(struct xsk_queue *q)
++{
++	q->cached_prod--;
++}
++
+ static inline int xskq_prod_reserve(struct xsk_queue *q)
+ {
+ 	if (xskq_prod_is_full(q))
+From 3a21777c6ee99749bac10727b3c17e5bcfebe5c1 Mon Sep 17 00:00:00 2001
+From: Jack Wang <jinpu.wang@cloud.ionos.com>
+Date: Fri, 8 Jan 2021 15:36:34 +0100
+Subject: block/rnbd-clt: avoid module unload race with close confirmation
+
+From: Jack Wang <jinpu.wang@cloud.ionos.com>
+
+commit 3a21777c6ee99749bac10727b3c17e5bcfebe5c1 upstream.
+
+We had kernel panic, it is caused by unload module and last
+close confirmation.
+
+call trace:
+[1196029.743127]  free_sess+0x15/0x50 [rtrs_client]
+[1196029.743128]  rtrs_clt_close+0x4c/0x70 [rtrs_client]
+[1196029.743129]  ? rnbd_clt_unmap_device+0x1b0/0x1b0 [rnbd_client]
+[1196029.743130]  close_rtrs+0x25/0x50 [rnbd_client]
+[1196029.743131]  rnbd_client_exit+0x93/0xb99 [rnbd_client]
+[1196029.743132]  __x64_sys_delete_module+0x190/0x260
+
+And in the crashdump confirmation kworker is also running.
+PID: 6943   TASK: ffff9e2ac8098000  CPU: 4   COMMAND: "kworker/4:2"
+ #0 [ffffb206cf337c30] __schedule at ffffffff9f93f891
+ #1 [ffffb206cf337cc8] schedule at ffffffff9f93fe98
+ #2 [ffffb206cf337cd0] schedule_timeout at ffffffff9f943938
+ #3 [ffffb206cf337d50] wait_for_completion at ffffffff9f9410a7
+ #4 [ffffb206cf337da0] __flush_work at ffffffff9f08ce0e
+ #5 [ffffb206cf337e20] rtrs_clt_close_conns at ffffffffc0d5f668 [rtrs_client]
+ #6 [ffffb206cf337e48] rtrs_clt_close at ffffffffc0d5f801 [rtrs_client]
+ #7 [ffffb206cf337e68] close_rtrs at ffffffffc0d26255 [rnbd_client]
+ #8 [ffffb206cf337e78] free_sess at ffffffffc0d262ad [rnbd_client]
+ #9 [ffffb206cf337e88] rnbd_clt_put_dev at ffffffffc0d266a7 [rnbd_client]
+
+The problem is both code path try to close same session, which lead to
+panic.
+
+To fix it, just skip the sess if the refcount already drop to 0.
+
+Fixes: f7a7a5c228d4 ("block/rnbd: client: main functionality")
+Signed-off-by: Jack Wang <jinpu.wang@cloud.ionos.com>
+Reviewed-by: Gioh Kim <gi-oh.kim@cloud.ionos.com>
+Signed-off-by: Jens Axboe <axboe@kernel.dk>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/block/rnbd/rnbd-clt.c |    3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+--- a/drivers/block/rnbd/rnbd-clt.c
++++ b/drivers/block/rnbd/rnbd-clt.c
+@@ -1671,7 +1671,8 @@ static void rnbd_destroy_sessions(void)
+ 	 */
+ 
+ 	list_for_each_entry_safe(sess, sn, &sess_list, list) {
+-		WARN_ON(!rnbd_clt_get_sess(sess));
++		if (!rnbd_clt_get_sess(sess))
++			continue;
+ 		close_rtrs(sess);
+ 		list_for_each_entry_safe(dev, tn, &sess->devs_list, list) {
+ 			/*
+From b42b3a2744b3e8f427de79896720c72823af91ad Mon Sep 17 00:00:00 2001
+From: Oliver Hartkopp <socketcan@hartkopp.net>
+Date: Tue, 12 Jan 2021 10:16:43 +0100
+Subject: can: isotp: isotp_getname(): fix kernel information leak
+
+From: Oliver Hartkopp <socketcan@hartkopp.net>
+
+commit b42b3a2744b3e8f427de79896720c72823af91ad upstream.
+
+Initialize the sockaddr_can structure to prevent a data leak to user space.
+
+Suggested-by: Cong Wang <xiyou.wangcong@gmail.com>
+Reported-by: syzbot+057884e2f453e8afebc8@syzkaller.appspotmail.com
+Fixes: e057dd3fc20f ("can: add ISO 15765-2:2016 transport protocol")
+Signed-off-by: Oliver Hartkopp <socketcan@hartkopp.net>
+Link: https://lore.kernel.org/r/20210112091643.11789-1-socketcan@hartkopp.net
+Signed-off-by: Marc Kleine-Budde <mkl@pengutronix.de>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ net/can/isotp.c |    1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/net/can/isotp.c
++++ b/net/can/isotp.c
+@@ -1139,6 +1139,7 @@ static int isotp_getname(struct socket *
+ 	if (peer)
+ 		return -EOPNOTSUPP;
+ 
++	memset(addr, 0, sizeof(*addr));
+ 	addr->can_family = AF_CAN;
+ 	addr->can_ifindex = so->ifindex;
+ 	addr->can_addr.tp.rx_id = so->rxid;
+From aebf5db917055b38f4945ed6d621d9f07a44ff30 Mon Sep 17 00:00:00 2001
+From: Ming Lei <ming.lei@redhat.com>
+Date: Mon, 21 Dec 2020 12:33:35 +0800
+Subject: block: fix use-after-free in disk_part_iter_next
+
+From: Ming Lei <ming.lei@redhat.com>
+
+commit aebf5db917055b38f4945ed6d621d9f07a44ff30 upstream.
+
+Make sure that bdgrab() is done on the 'block_device' instance before
+referring to it for avoiding use-after-free.
+
+Cc: <stable@vger.kernel.org>
+Reported-by: syzbot+825f0f9657d4e528046e@syzkaller.appspotmail.com
+Signed-off-by: Ming Lei <ming.lei@redhat.com>
+Reviewed-by: Christoph Hellwig <hch@lst.de>
+Signed-off-by: Jens Axboe <axboe@kernel.dk>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ block/genhd.c |    9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+--- a/block/genhd.c
++++ b/block/genhd.c
+@@ -256,14 +256,17 @@ struct hd_struct *disk_part_iter_next(st
+ 		part = rcu_dereference(ptbl->part[piter->idx]);
+ 		if (!part)
+ 			continue;
++		get_device(part_to_dev(part));
++		piter->part = part;
+ 		if (!part_nr_sects_read(part) &&
+ 		    !(piter->flags & DISK_PITER_INCL_EMPTY) &&
+ 		    !(piter->flags & DISK_PITER_INCL_EMPTY_PART0 &&
+-		      piter->idx == 0))
++		      piter->idx == 0)) {
++			put_device(part_to_dev(part));
++			piter->part = NULL;
+ 			continue;
++		}
+ 
+-		get_device(part_to_dev(part));
+-		piter->part = part;
+ 		piter->idx += inc;
+ 		break;
+ 	}
+From 54970a2fbb673f090b7f02d7f57b10b2e0707155 Mon Sep 17 00:00:00 2001
+From: Vasily Averin <vvs@virtuozzo.com>
+Date: Mon, 14 Dec 2020 22:07:39 +0300
+Subject: net: drop bogus skb with CHECKSUM_PARTIAL and offset beyond end of trimmed packet
+
+From: Vasily Averin <vvs@virtuozzo.com>
+
+commit 54970a2fbb673f090b7f02d7f57b10b2e0707155 upstream.
+
+syzbot reproduces BUG_ON in skb_checksum_help():
+tun creates (bogus) skb with huge partial-checksummed area and
+small ip packet inside. Then ip_rcv trims the skb based on size
+of internal ip packet, after that csum offset points beyond of
+trimmed skb. Then checksum_tg() called via netfilter hook
+triggers BUG_ON:
+
+        offset = skb_checksum_start_offset(skb);
+        BUG_ON(offset >= skb_headlen(skb));
+
+To work around the problem this patch forces pskb_trim_rcsum_slow()
+to return -EINVAL in described scenario. It allows its callers to
+drop such kind of packets.
+
+Link: https://syzkaller.appspot.com/bug?id=b419a5ca95062664fe1a60b764621eb4526e2cd0
+Reported-by: syzbot+7010af67ced6105e5ab6@syzkaller.appspotmail.com
+Signed-off-by: Vasily Averin <vvs@virtuozzo.com>
+Acked-by: Willem de Bruijn <willemb@google.com>
+Link: https://lore.kernel.org/r/1b2494af-2c56-8ee2-7bc0-923fcad1cdf8@virtuozzo.com
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ net/core/skbuff.c |    6 ++++++
+ 1 file changed, 6 insertions(+)
+
+--- a/net/core/skbuff.c
++++ b/net/core/skbuff.c
+@@ -2011,6 +2011,12 @@ int pskb_trim_rcsum_slow(struct sk_buff
+ 		skb->csum = csum_block_sub(skb->csum,
+ 					   skb_checksum(skb, len, delta, 0),
+ 					   len);
++	} else if (skb->ip_summed == CHECKSUM_PARTIAL) {
++		int hdlen = (len > skb_headlen(skb)) ? skb_headlen(skb) : len;
++		int offset = skb_checksum_start_offset(skb) + skb->csum_offset;
++
++		if (offset + sizeof(__sum16) > hdlen)
++			return -EINVAL;
+ 	}
+ 	return __pskb_trim(skb, len);
+ }
+From f6bcb4c7f366905b66ce8ffca7190118244bb642 Mon Sep 17 00:00:00 2001
+From: Dan Carpenter <dan.carpenter@oracle.com>
+Date: Tue, 5 Jan 2021 14:42:29 +0300
+Subject: regmap: debugfs: Fix a reversed if statement in regmap_debugfs_init()
+
+From: Dan Carpenter <dan.carpenter@oracle.com>
+
+commit f6bcb4c7f366905b66ce8ffca7190118244bb642 upstream.
+
+This code will leak "map->debugfs_name" because the if statement is
+reversed so it only frees NULL pointers instead of non-NULL.  In
+fact the if statement is not required and should just be removed
+because kfree() accepts NULL pointers.
+
+Fixes: cffa4b2122f5 ("regmap: debugfs: Fix a memory leak when calling regmap_attach_dev")
+Signed-off-by: Dan Carpenter <dan.carpenter@oracle.com>
+Link: https://lore.kernel.org/r/X/RQpfAwRdLg0GqQ@mwanda
+Signed-off-by: Mark Brown <broonie@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/base/regmap/regmap-debugfs.c |    4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+--- a/drivers/base/regmap/regmap-debugfs.c
++++ b/drivers/base/regmap/regmap-debugfs.c
+@@ -594,9 +594,7 @@ void regmap_debugfs_init(struct regmap *
+ 	}
+ 
+ 	if (!strcmp(name, "dummy")) {
+-		if (!map->debugfs_name)
+-			kfree(map->debugfs_name);
+-
++		kfree(map->debugfs_name);
+ 		map->debugfs_name = kasprintf(GFP_KERNEL, "dummy%d",
+ 						dummy_index);
+ 		if (!map->debugfs_name)
+From 7d6763ab77b3c047cf7d31ca7c4b799808a684a6 Mon Sep 17 00:00:00 2001
+From: Boris Brezillon <boris.brezillon@collabora.com>
+Date: Sun, 1 Nov 2020 18:38:17 +0100
+Subject: drm/panfrost: Remove unused variables in panfrost_job_close()
+
+From: Boris Brezillon <boris.brezillon@collabora.com>
+
+commit 7d6763ab77b3c047cf7d31ca7c4b799808a684a6 upstream.
+
+Commit a17d609e3e21 ("drm/panfrost: Don't corrupt the queue mutex on
+open/close") left unused variables behind, thus generating a warning
+at compilation time. Remove those variables.
+
+Fixes: a17d609e3e21 ("drm/panfrost: Don't corrupt the queue mutex on open/close")
+Signed-off-by: Boris Brezillon <boris.brezillon@collabora.com>
+Reviewed-by: Steven Price <steven.price@arm.com>
+Link: https://patchwork.freedesktop.org/patch/msgid/20201101173817.831769-1-boris.brezillon@collabora.com
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/gpu/drm/panfrost/panfrost_job.c |    2 --
+ 1 file changed, 2 deletions(-)
+
+--- a/drivers/gpu/drm/panfrost/panfrost_job.c
++++ b/drivers/gpu/drm/panfrost/panfrost_job.c
+@@ -676,8 +676,6 @@ int panfrost_job_open(struct panfrost_fi
+ 
+ void panfrost_job_close(struct panfrost_file_priv *panfrost_priv)
+ {
+-	struct panfrost_device *pfdev = panfrost_priv->pfdev;
+-	struct panfrost_job_slot *js = pfdev->js;
+ 	int i;
+ 
+ 	for (i = 0; i < NUM_JOB_SLOTS; i++)
+From 4a443a51776ca9847942523cf987a330894d3a31 Mon Sep 17 00:00:00 2001
+From: Arnaldo Carvalho de Melo <acme@redhat.com>
+Date: Thu, 17 Dec 2020 14:58:51 -0300
+Subject: tools headers UAPI: Sync linux/fscrypt.h with the kernel sources
+
+From: Arnaldo Carvalho de Melo <acme@redhat.com>
+
+commit 4a443a51776ca9847942523cf987a330894d3a31 upstream.
+
+To pick the changes from:
+
+  3ceb6543e9cf6ed8 ("fscrypt: remove kernel-internal constants from UAPI header")
+
+That don't result in any changes in tooling, just addressing this perf
+build warning:
+
+  Warning: Kernel ABI header at 'tools/include/uapi/linux/fscrypt.h' differs from latest version at 'include/uapi/linux/fscrypt.h'
+  diff -u tools/include/uapi/linux/fscrypt.h include/uapi/linux/fscrypt.h
+
+Cc: Adrian Hunter <adrian.hunter@intel.com>
+Cc: Eric Biggers <ebiggers@google.com>
+Cc: Ian Rogers <irogers@google.com>
+Cc: Jiri Olsa <jolsa@kernel.org>
+Cc: Namhyung Kim <namhyung@kernel.org>
+Signed-off-by: Arnaldo Carvalho de Melo <acme@redhat.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ tools/include/uapi/linux/fscrypt.h |    5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+--- a/tools/include/uapi/linux/fscrypt.h
++++ b/tools/include/uapi/linux/fscrypt.h
+@@ -20,7 +20,6 @@
+ #define FSCRYPT_POLICY_FLAG_DIRECT_KEY		0x04
+ #define FSCRYPT_POLICY_FLAG_IV_INO_LBLK_64	0x08
+ #define FSCRYPT_POLICY_FLAG_IV_INO_LBLK_32	0x10
+-#define FSCRYPT_POLICY_FLAGS_VALID		0x1F
+ 
+ /* Encryption algorithms */
+ #define FSCRYPT_MODE_AES_256_XTS		1
+@@ -28,7 +27,7 @@
+ #define FSCRYPT_MODE_AES_128_CBC		5
+ #define FSCRYPT_MODE_AES_128_CTS		6
+ #define FSCRYPT_MODE_ADIANTUM			9
+-#define __FSCRYPT_MODE_MAX			9
++/* If adding a mode number > 9, update FSCRYPT_MODE_MAX in fscrypt_private.h */
+ 
+ /*
+  * Legacy policy version; ad-hoc KDF and no key verification.
+@@ -177,7 +176,7 @@ struct fscrypt_get_key_status_arg {
+ #define FS_POLICY_FLAGS_PAD_32		FSCRYPT_POLICY_FLAGS_PAD_32
+ #define FS_POLICY_FLAGS_PAD_MASK	FSCRYPT_POLICY_FLAGS_PAD_MASK
+ #define FS_POLICY_FLAG_DIRECT_KEY	FSCRYPT_POLICY_FLAG_DIRECT_KEY
+-#define FS_POLICY_FLAGS_VALID		FSCRYPT_POLICY_FLAGS_VALID
++#define FS_POLICY_FLAGS_VALID		0x07	/* contains old flags only */
+ #define FS_ENCRYPTION_MODE_INVALID	0	/* never used */
+ #define FS_ENCRYPTION_MODE_AES_256_XTS	FSCRYPT_MODE_AES_256_XTS
+ #define FS_ENCRYPTION_MODE_AES_256_GCM	2	/* never used */
