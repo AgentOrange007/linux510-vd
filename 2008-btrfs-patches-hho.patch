@@ -381,163 +381,7 @@ index ecd24c719de4..eb348656839f 100644
  DECLARE_EVENT_CLASS(btrfs_sleep_tree_lock,
  	TP_PROTO(const struct extent_buffer *eb, u64 start_ns),
  
-From:   Josef Bacik <josef@toxicpanda.com>
-To:     linux-btrfs@vger.kernel.org, kernel-team@fb.com
-Subject: [PATCH v3 03/12] btrfs: track ordered bytes instead of just dio ordered bytes
-Date:   Fri,  9 Oct 2020 09:28:20 -0400
-
-We track dio_bytes because the shrink delalloc code needs to know if we
-have more DIO in flight than we have normal buffered IO.  The reason for
-this is because we can't "flush" DIO, we have to just wait on the
-ordered extents to finish.
-
-However this is true of all ordered extents.  If we have more ordered
-space outstanding than dirty pages we should be waiting on ordered
-extents.  We already are ok on this front technically, because we always
-do a FLUSH_DELALLOC_WAIT loop, but I want to use the ordered counter in
-the preemptive flushing code as well, so change this to count all
-ordered bytes instead of just DIO ordered bytes.
-
-Signed-off-by: Josef Bacik <josef@toxicpanda.com>
----
- fs/btrfs/ctree.h        |  2 +-
- fs/btrfs/disk-io.c      |  8 ++++----
- fs/btrfs/ordered-data.c | 13 ++++++-------
- fs/btrfs/space-info.c   | 18 +++++++-----------
- 4 files changed, 18 insertions(+), 23 deletions(-)
-
-diff --git a/fs/btrfs/ctree.h b/fs/btrfs/ctree.h
-index aac3d6f4e35b..e817b3b3483d 100644
---- a/fs/btrfs/ctree.h
-+++ b/fs/btrfs/ctree.h
-@@ -790,7 +790,7 @@ struct btrfs_fs_info {
- 	/* used to keep from writing metadata until there is a nice batch */
- 	struct percpu_counter dirty_metadata_bytes;
- 	struct percpu_counter delalloc_bytes;
--	struct percpu_counter dio_bytes;
-+	struct percpu_counter ordered_bytes;
- 	s32 dirty_metadata_batch;
- 	s32 delalloc_batch;
- 
-diff --git a/fs/btrfs/disk-io.c b/fs/btrfs/disk-io.c
-index 764001609a15..61bb3321efaa 100644
---- a/fs/btrfs/disk-io.c
-+++ b/fs/btrfs/disk-io.c
-@@ -1466,7 +1466,7 @@ void btrfs_free_fs_info(struct btrfs_fs_info *fs_info)
- {
- 	percpu_counter_destroy(&fs_info->dirty_metadata_bytes);
- 	percpu_counter_destroy(&fs_info->delalloc_bytes);
--	percpu_counter_destroy(&fs_info->dio_bytes);
-+	percpu_counter_destroy(&fs_info->ordered_bytes);
- 	percpu_counter_destroy(&fs_info->dev_replace.bio_counter);
- 	btrfs_free_csum_hash(fs_info);
- 	btrfs_free_stripe_hash_table(fs_info);
-@@ -2748,7 +2748,7 @@ static int init_mount_fs_info(struct btrfs_fs_info *fs_info, struct super_block
- 	sb->s_blocksize = BTRFS_BDEV_BLOCKSIZE;
- 	sb->s_blocksize_bits = blksize_bits(BTRFS_BDEV_BLOCKSIZE);
- 
--	ret = percpu_counter_init(&fs_info->dio_bytes, 0, GFP_KERNEL);
-+	ret = percpu_counter_init(&fs_info->ordered_bytes, 0, GFP_KERNEL);
- 	if (ret)
- 		return ret;
- 
-@@ -4055,9 +4055,9 @@ void __cold close_ctree(struct btrfs_fs_info *fs_info)
- 		       percpu_counter_sum(&fs_info->delalloc_bytes));
- 	}
- 
--	if (percpu_counter_sum(&fs_info->dio_bytes))
-+	if (percpu_counter_sum(&fs_info->ordered_bytes))
- 		btrfs_info(fs_info, "at unmount dio bytes count %lld",
--			   percpu_counter_sum(&fs_info->dio_bytes));
-+			   percpu_counter_sum(&fs_info->ordered_bytes));
- 
- 	btrfs_sysfs_remove_mounted(fs_info);
- 	btrfs_sysfs_remove_fsid(fs_info->fs_devices);
-diff --git a/fs/btrfs/ordered-data.c b/fs/btrfs/ordered-data.c
-index 87bac9ecdf4c..9a277a475a1c 100644
---- a/fs/btrfs/ordered-data.c
-+++ b/fs/btrfs/ordered-data.c
-@@ -202,11 +202,11 @@ static int __btrfs_add_ordered_extent(struct btrfs_inode *inode, u64 file_offset
- 	if (type != BTRFS_ORDERED_IO_DONE && type != BTRFS_ORDERED_COMPLETE)
- 		set_bit(type, &entry->flags);
- 
--	if (dio) {
--		percpu_counter_add_batch(&fs_info->dio_bytes, num_bytes,
--					 fs_info->delalloc_batch);
-+	percpu_counter_add_batch(&fs_info->ordered_bytes, num_bytes,
-+				 fs_info->delalloc_batch);
-+
-+	if (dio)
- 		set_bit(BTRFS_ORDERED_DIRECT, &entry->flags);
--	}
- 
- 	/* one ref for the tree */
- 	refcount_set(&entry->refs, 1);
-@@ -480,9 +480,8 @@ void btrfs_remove_ordered_extent(struct btrfs_inode *btrfs_inode,
- 		btrfs_delalloc_release_metadata(btrfs_inode, entry->num_bytes,
- 						false);
- 
--	if (test_bit(BTRFS_ORDERED_DIRECT, &entry->flags))
--		percpu_counter_add_batch(&fs_info->dio_bytes, -entry->num_bytes,
--					 fs_info->delalloc_batch);
-+	percpu_counter_add_batch(&fs_info->ordered_bytes, -entry->num_bytes,
-+				 fs_info->delalloc_batch);
- 
- 	tree = &btrfs_inode->ordered_tree;
- 	spin_lock_irq(&tree->lock);
-diff --git a/fs/btrfs/space-info.c b/fs/btrfs/space-info.c
-index ac7269cf1904..540960365787 100644
---- a/fs/btrfs/space-info.c
-+++ b/fs/btrfs/space-info.c
-@@ -489,7 +489,7 @@ static void shrink_delalloc(struct btrfs_fs_info *fs_info,
- {
- 	struct btrfs_trans_handle *trans;
- 	u64 delalloc_bytes;
--	u64 dio_bytes;
-+	u64 ordered_bytes;
- 	u64 items;
- 	long time_left;
- 	int loops;
-@@ -513,25 +513,20 @@ static void shrink_delalloc(struct btrfs_fs_info *fs_info,
- 
- 	delalloc_bytes = percpu_counter_sum_positive(
- 						&fs_info->delalloc_bytes);
--	dio_bytes = percpu_counter_sum_positive(&fs_info->dio_bytes);
--	if (delalloc_bytes == 0 && dio_bytes == 0) {
--		if (trans)
--			return;
--		if (wait_ordered)
--			btrfs_wait_ordered_roots(fs_info, items, 0, (u64)-1);
-+	ordered_bytes = percpu_counter_sum_positive(&fs_info->ordered_bytes);
-+	if (delalloc_bytes == 0 && ordered_bytes == 0)
- 		return;
--	}
- 
- 	/*
- 	 * If we are doing more ordered than delalloc we need to just wait on
- 	 * ordered extents, otherwise we'll waste time trying to flush delalloc
- 	 * that likely won't give us the space back we need.
- 	 */
--	if (dio_bytes > delalloc_bytes)
-+	if (ordered_bytes > delalloc_bytes)
- 		wait_ordered = true;
- 
- 	loops = 0;
--	while ((delalloc_bytes || dio_bytes) && loops < 3) {
-+	while ((delalloc_bytes || ordered_bytes) && loops < 3) {
-		unsigned long nr_pages = min(delalloc_bytes, to_reclaim) >> PAGE_SHIFT;
-		btrfs_writeback_inodes_sb_nr(fs_info, nr_pages, items);
- 
-@@ -553,7 +548,8 @@ static void shrink_delalloc(struct btrfs_fs_info *fs_info,
- 
- 		delalloc_bytes = percpu_counter_sum_positive(
- 						&fs_info->delalloc_bytes);
--		dio_bytes = percpu_counter_sum_positive(&fs_info->dio_bytes);
-+		ordered_bytes = percpu_counter_sum_positive(
-+						&fs_info->ordered_bytes);
- 	}
- }
- 
+--
 From:   Josef Bacik <josef@toxicpanda.com>
 To:     linux-btrfs@vger.kernel.org, kernel-team@fb.com
 Subject: [PATCH v3 04/12] btrfs: introduce a FORCE_COMMIT_TRANS flush operation
@@ -1553,171 +1397,7 @@ index 84a75cf86d88..0a2ee8983528 100644
  out:
  	/*
  	 * Don't forget to free the reserved space, as for inlined extent
-From:   fdmanana@kernel.org
-To:     linux-btrfs@vger.kernel.org
-Subject: [PATCH] btrfs: skip unnecessary searches for xattrs when logging an inode
-Date:   Fri, 13 Nov 2020 11:21:49 +0000
-
-From: Filipe Manana <fdmanana@suse.com>
-
-Every time we log an inode we lookup in the fs/subvol tree for xattrs and
-if we have any, log them into the log tree. However it is very common to
-have inodes without any xattrs, so doing the search wastes times, but more
-importanly it adds contention on the fs/subvol tree locks, either making
-the logging code block and wait for tree locks or making the logging code
-making other concurrent operations block and wait.
-
-The most typical use cases where xattrs are used are when capabilities or
-ACLs are defined for an inode, or when SELinux is enabled.
-
-This change makes the logging code detect when an inode does not have
-xattrs and skip the xattrs search the next time the inode is logged,
-unless the inode is evicted and loaded again or a xattr is added to the
-inode. Therefore skipping the search for xattrs on inodes that don't ever
-have xattrs and are fsynced with some frequency.
-
-The following script that calls dbench was used to measure the impact of
-this change on a VM with 8 cpus, 16Gb of ram, using a raw NVMe device
-directly (no intermediary filesystem on the host) and using a non-debug
-kernel (default configuration on Debian distributions):
-
-  $ cat test.sh
-  #!/bin/bash
-
-  DEV=/dev/sdk
-  MNT=/mnt/sdk
-  MOUNT_OPTIONS="-o ssd"
-
-  mkfs.btrfs -f -m single -d single $DEV
-  mount $MOUNT_OPTIONS $DEV $MNT
-
-  dbench -D $MNT -t 200 40
-
-  umount $MNT
-
-The results before this change:
-
- Operation      Count    AvgLat    MaxLat
- ----------------------------------------
- NTCreateX    5761605     0.172   312.057
- Close        4232452     0.002    10.927
- Rename        243937     1.406   277.344
- Unlink       1163456     0.631   298.402
- Deltree          160    11.581   221.107
- Mkdir             80     0.003     0.005
- Qpathinfo    5221410     0.065   122.309
- Qfileinfo     915432     0.001     3.333
- Qfsinfo       957555     0.003     3.992
- Sfileinfo     469244     0.023    20.494
- Find         2018865     0.448   123.659
- WriteX       2874851     0.049   118.529
- ReadX        9030579     0.004    21.654
- LockX          18754     0.003     4.423
- UnlockX        18754     0.002     0.331
- Flush         403792    10.944   359.494
-
-Throughput 908.444 MB/sec  40 clients  40 procs  max_latency=359.500 ms
-
-The results after this change:
-
- Operation      Count    AvgLat    MaxLat
- ----------------------------------------
- NTCreateX    6442521     0.159   230.693
- Close        4732357     0.002    10.972
- Rename        272809     1.293   227.398
- Unlink       1301059     0.563   218.500
- Deltree          160     7.796    54.887
- Mkdir             80     0.008     0.478
- Qpathinfo    5839452     0.047   124.330
- Qfileinfo    1023199     0.001     4.996
- Qfsinfo      1070760     0.003     5.709
- Sfileinfo     524790     0.033    21.765
- Find         2257658     0.314   125.611
- WriteX       3211520     0.040   232.135
- ReadX        10098969     0.004    25.340
- LockX          20974     0.003     1.569
- UnlockX        20974     0.002     3.475
- Flush         451553    10.287   331.037
-
-Throughput 1011.77 MB/sec  40 clients  40 procs  max_latency=331.045 ms
-
-+10.8% throughput, -8.2% max latency
-
-Signed-off-by: Filipe Manana <fdmanana@suse.com>
----
- fs/btrfs/btrfs_inode.h | 7 +++++++
- fs/btrfs/tree-log.c    | 8 ++++++++
- fs/btrfs/xattr.c       | 4 +++-
- 3 files changed, 18 insertions(+), 1 deletion(-)
-
-diff --git a/fs/btrfs/btrfs_inode.h b/fs/btrfs/btrfs_inode.h
-index 34f5fc318fc1..e135a71ec179 100644
---- a/fs/btrfs/btrfs_inode.h
-+++ b/fs/btrfs/btrfs_inode.h
-@@ -35,6 +35,13 @@ enum {
- 	BTRFS_INODE_IN_DELALLOC_LIST,
- 	BTRFS_INODE_HAS_PROPS,
- 	BTRFS_INODE_SNAPSHOT_FLUSH,
-+	/*
-+	 * Set and used when logging an inode and it serves to signal that an
-+	 * inode does not have xattrs, so subsequent fsyncs can avoid searching
-+	 * for xattrs to log. This bit must be cleared whenever a xattr is added
-+	 * to an inode.
-+	 */
-+	BTRFS_INODE_NO_XATTRS,
- };
- 
- /* in memory btrfs inode */
-diff --git a/fs/btrfs/tree-log.c b/fs/btrfs/tree-log.c
-index 932a74a236eb..17a08a7bf6cc 100644
---- a/fs/btrfs/tree-log.c
-+++ b/fs/btrfs/tree-log.c
-@@ -4574,6 +4574,10 @@ static int btrfs_log_all_xattrs(struct btrfs_trans_handle *trans,
- 	const u64 ino = btrfs_ino(inode);
- 	int ins_nr = 0;
- 	int start_slot = 0;
-+	bool found_xattrs = false;
-+
-+	if (test_bit(BTRFS_INODE_NO_XATTRS, &inode->runtime_flags))
-+		return 0;
- 
- 	key.objectid = ino;
- 	key.type = BTRFS_XATTR_ITEM_KEY;
-@@ -4612,6 +4616,7 @@ static int btrfs_log_all_xattrs(struct btrfs_trans_handle *trans,
- 			start_slot = slot;
- 		ins_nr++;
- 		path->slots[0]++;
-+		found_xattrs = true;
- 		cond_resched();
- 	}
- 	if (ins_nr > 0) {
-@@ -4621,6 +4626,9 @@ static int btrfs_log_all_xattrs(struct btrfs_trans_handle *trans,
- 			return ret;
- 	}
- 
-+	if (!found_xattrs)
-+		set_bit(BTRFS_INODE_NO_XATTRS, &inode->runtime_flags);
-+
- 	return 0;
- }
- 
-diff --git a/fs/btrfs/xattr.c b/fs/btrfs/xattr.c
-index 95d9aebff2c4..e51774201d53 100644
---- a/fs/btrfs/xattr.c
-+++ b/fs/btrfs/xattr.c
-@@ -213,9 +213,11 @@ int btrfs_setxattr(struct btrfs_trans_handle *trans, struct inode *inode,
- 	}
- out:
- 	btrfs_free_path(path);
--	if (!ret)
-+	if (!ret) {
- 		set_bit(BTRFS_INODE_COPY_EVERYTHING,
- 			&BTRFS_I(inode)->runtime_flags);
-+		clear_bit(BTRFS_INODE_NO_XATTRS, &BTRFS_I(inode)->runtime_flags);
-+	}
- 	return ret;
- }
- 
+--
 From:   fdmanana@kernel.org
 To:     linux-btrfs@vger.kernel.org
 Subject: [PATCH] btrfs: stop incrementing log batch when joining log transaction
@@ -2693,7 +2373,6 @@ index bc5b652f4f64..e8b84543d565 100644
  	}
  	return 0;
  }
---
 From:   Josef Bacik <josef@toxicpanda.com>
 To:     linux-btrfs@vger.kernel.org, kernel-team@fb.com
 Cc:     Nikolay Borisov <nborisov@suse.com>
@@ -3211,3 +2890,93 @@ index b3c9da5833db..8a6b38c01277 100644
  		ret = btrfs_run_delayed_refs(trans, (unsigned long)-1);
  		if (ret)
  			return ret;
+--
+From:   Qu Wenruo <wqu@suse.com>
+To:     linux-btrfs@vger.kernel.org
+Cc:     =?UTF-8?q?St=C3=A9phane=20Lesimple?= <stephane_btrfs2@lesimple.fr>
+Subject: [PATCH] btrfs: relocation: fix wrong file extent type check to avoid false -ENOENT error
+Date:   Tue, 29 Dec 2020 21:29:34 +0800
+
+[BUG]
+There are several bug reports about recent kernel unable to relocate
+certain data block groups.
+
+Sometimes the error just go away, but there is one reporter who can
+reproduce it reliably.
+
+The dmesg would look like:
+[  438.260483] BTRFS info (device dm-10): balance: start -dvrange=34625344765952..34625344765953
+[  438.269018] BTRFS info (device dm-10): relocating block group 34625344765952 flags data|raid1
+[  450.439609] BTRFS info (device dm-10): found 167 extents, stage: move data extents
+[  463.501781] BTRFS info (device dm-10): balance: ended with status: -2
+
+[CAUSE]
+The -ENOENT error is returned from the following chall chain:
+
+add_data_references()
+|- delete_v1_space_cache();
+   |- if (!found)
+         return -ENOENT;
+
+The variable @found is set to true if we find a data extent whose
+disk bytenr matches parameter @data_bytes.
+
+With extra debug, the offending tree block looks like this:
+  leaf bytenr = 42676709441536, data_bytenr = 34626327621632
+
+                ctime 1567904822.739884119 (2019-09-08 03:07:02)
+                mtime 0.0 (1970-01-01 01:00:00)
+                otime 0.0 (1970-01-01 01:00:00)
+        item 27 key (51933 EXTENT_DATA 0) itemoff 9854 itemsize 53
+                generation 1517381 type 2 (prealloc)
+                prealloc data disk byte 34626327621632 nr 262144 <<<
+                prealloc data offset 0 nr 262144
+        item 28 key (52262 ROOT_ITEM 0) itemoff 9415 itemsize 439
+                generation 2618893 root_dirid 256 bytenr 42677048360960 level 3 refs 1
+                lastsnap 2618893 byte_limit 0 bytes_used 5557338112 flags 0x0(none)
+                uuid d0d4361f-d231-6d40-8901-fe506e4b2b53
+
+Although item 27 has disk bytenr 34626327621632, which matches the
+data_bytenr, its type is prealloc, not reg.
+This makes the existing code skip that item, and return -ENOENT.
+
+[FIX]
+The code is modified in commit  19b546d7a1b2 ("btrfs: relocation: Use
+btrfs_find_all_leafs to locate data extent parent tree leaves"), before
+that commit, we use something like
+"if (type == BTRFS_FILE_EXTENT_INLINE) continue;".
+
+But in that offending commit, we use (type == BTRFS_FILE_EXTENT_REG),
+ignoring BTRFS_FILE_EXTENT_PREALLOC.
+
+Fix it by also checking BTRFS_FILE_EXTENT_PREALLOC.
+
+Reported-by: Stéphane Lesimple <stephane_btrfs2@lesimple.fr>
+Fixes: 19b546d7a1b2 ("btrfs: relocation: Use btrfs_find_all_leafs to locate data extent parent tree leaves")
+Signed-off-by: Qu Wenruo <wqu@suse.com>
+---
+ fs/btrfs/relocation.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/fs/btrfs/relocation.c b/fs/btrfs/relocation.c
+index 19b7db8b2117..df63ef64c5c0 100644
+--- a/fs/btrfs/relocation.c
++++ b/fs/btrfs/relocation.c
+@@ -2975,11 +2975,16 @@ static int delete_v1_space_cache(struct extent_buffer *leaf,
+ 		return 0;
+ 
+ 	for (i = 0; i < btrfs_header_nritems(leaf); i++) {
++		u8 type;
++
+ 		btrfs_item_key_to_cpu(leaf, &key, i);
+ 		if (key.type != BTRFS_EXTENT_DATA_KEY)
+ 			continue;
+ 		ei = btrfs_item_ptr(leaf, i, struct btrfs_file_extent_item);
+-		if (btrfs_file_extent_type(leaf, ei) == BTRFS_FILE_EXTENT_REG &&
++		type = btrfs_file_extent_type(leaf, ei);
++
++		if ((type == BTRFS_FILE_EXTENT_REG ||
++		     type == BTRFS_FILE_EXTENT_PREALLOC) &&
+ 		    btrfs_file_extent_disk_bytenr(leaf, ei) == data_bytenr) {
+ 			found = true;
+ 			space_cache_ino = key.objectid;

@@ -1,0 +1,3832 @@
+
+From 4e6441b56402324283571d96bd9a55ef97b74b4d Mon Sep 17 00:00:00 2001
+From: Sasha Levin <sashal@kernel.org>
+Date: Wed, 13 Jan 2021 06:40:20 +0000
+Subject: powerpc/32s: Fix RTAS machine check with VMAP stack
+
+From: Christophe Leroy <christophe.leroy@csgroup.eu>
+
+[ Upstream commit 98bf2d3f4970179c702ef64db658e0553bc6ef3a ]
+
+When we have VMAP stack, exception prolog 1 sets r1, not r11.
+
+When it is not an RTAS machine check, don't trash r1 because it is
+needed by prolog 1.
+
+Fixes: da7bb43ab9da ("powerpc/32: Fix vmap stack - Properly set r1 before activating MMU")
+Fixes: d2e006036082 ("powerpc/32: Use SPRN_SPRG_SCRATCH2 in exception prologs")
+Cc: stable@vger.kernel.org # v5.10+
+Signed-off-by: Christophe Leroy <christophe.leroy@csgroup.eu>
+[mpe: Squash in fixup for RTAS machine check from Christophe]
+Signed-off-by: Michael Ellerman <mpe@ellerman.id.au>
+Link: https://lore.kernel.org/r/bc77d61d1c18940e456a2dee464f1e2eda65a3f0.1608621048.git.christophe.leroy@csgroup.eu
+Signed-off-by: Sasha Levin <sashal@kernel.org>
+---
+ arch/powerpc/kernel/head_book3s_32.S | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/arch/powerpc/kernel/head_book3s_32.S b/arch/powerpc/kernel/head_book3s_32.S
+index a0dda2a1f2df0..d66da35f2e8d3 100644
+--- a/arch/powerpc/kernel/head_book3s_32.S
++++ b/arch/powerpc/kernel/head_book3s_32.S
+@@ -262,10 +262,19 @@ __secondary_hold_acknowledge:
+ MachineCheck:
+ 	EXCEPTION_PROLOG_0
+ #ifdef CONFIG_PPC_CHRP
++#ifdef CONFIG_VMAP_STACK
++	mr	r11, r1
++	mfspr	r1, SPRN_SPRG_THREAD
++	lwz	r1, RTAS_SP(r1)
++	cmpwi	cr1, r1, 0
++	bne	cr1, 7f
++	mr	r1, r11
++#else
+ 	mfspr	r11, SPRN_SPRG_THREAD
+ 	lwz	r11, RTAS_SP(r11)
+ 	cmpwi	cr1, r11, 0
+ 	bne	cr1, 7f
++#endif
+ #endif /* CONFIG_PPC_CHRP */
+ 	EXCEPTION_PROLOG_1 for_rtas=1
+ 7:	EXCEPTION_PROLOG_2
+-- 
+2.27.0
+
+From c376c506b4513e214ce71f8d5dfd113f428eb126 Mon Sep 17 00:00:00 2001
+From: Sasha Levin <sashal@kernel.org>
+Date: Tue, 12 Jan 2021 21:17:24 +0000
+Subject: io_uring: synchronise IOPOLL on task_submit fail
+
+From: Pavel Begunkov <asml.silence@gmail.com>
+
+commit 81b6d05ccad4f3d8a9dfb091fb46ad6978ee40e4 upstream
+
+io_req_task_submit() might be called for IOPOLL, do the fail path under
+uring_lock to comply with IOPOLL synchronisation based solely on it.
+
+Cc: stable@vger.kernel.org # 5.5+
+Signed-off-by: Pavel Begunkov <asml.silence@gmail.com>
+Signed-off-by: Jens Axboe <axboe@kernel.dk>
+Signed-off-by: Sasha Levin <sashal@kernel.org>
+---
+ fs/io_uring.c | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/fs/io_uring.c b/fs/io_uring.c
+index 1f798c5c4213e..3974b4f124b6a 100644
+--- a/fs/io_uring.c
++++ b/fs/io_uring.c
+@@ -2047,14 +2047,15 @@ static void io_req_task_cancel(struct callback_head *cb)
+ static void __io_req_task_submit(struct io_kiocb *req)
+ {
+ 	struct io_ring_ctx *ctx = req->ctx;
++	bool fail;
+ 
+-	if (!__io_sq_thread_acquire_mm(ctx)) {
+-		mutex_lock(&ctx->uring_lock);
++	fail = __io_sq_thread_acquire_mm(ctx);
++	mutex_lock(&ctx->uring_lock);
++	if (!fail)
+ 		__io_queue_sqe(req, NULL);
+-		mutex_unlock(&ctx->uring_lock);
+-	} else {
++	else
+ 		__io_req_task_cancel(req, -EFAULT);
+-	}
++	mutex_unlock(&ctx->uring_lock);
+ }
+ 
+ static void io_req_task_submit(struct callback_head *cb)
+-- 
+2.27.0
+
+From 3a5d5f02360671f2af08c015b3b0108254c256b9 Mon Sep 17 00:00:00 2001
+From: Sasha Levin <sashal@kernel.org>
+Date: Tue, 12 Jan 2021 21:17:25 +0000
+Subject: io_uring: limit {io|sq}poll submit locking scope
+
+From: Pavel Begunkov <asml.silence@gmail.com>
+
+commit 89448c47b8452b67c146dc6cad6f737e004c5caf upstream
+
+We don't need to take uring_lock for SQPOLL|IOPOLL to do
+io_cqring_overflow_flush() when cq_overflow_list is empty, remove it
+from the hot path.
+
+Signed-off-by: Pavel Begunkov <asml.silence@gmail.com>
+Signed-off-by: Jens Axboe <axboe@kernel.dk>
+Signed-off-by: Sasha Levin <sashal@kernel.org>
+---
+ fs/io_uring.c | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/fs/io_uring.c b/fs/io_uring.c
+index 3974b4f124b6a..5ba312ab99786 100644
+--- a/fs/io_uring.c
++++ b/fs/io_uring.c
+@@ -9024,10 +9024,13 @@ SYSCALL_DEFINE6(io_uring_enter, unsigned int, fd, u32, to_submit,
+ 	 */
+ 	ret = 0;
+ 	if (ctx->flags & IORING_SETUP_SQPOLL) {
+-		io_ring_submit_lock(ctx, (ctx->flags & IORING_SETUP_IOPOLL));
+-		if (!list_empty_careful(&ctx->cq_overflow_list))
++		if (!list_empty_careful(&ctx->cq_overflow_list)) {
++			bool needs_lock = ctx->flags & IORING_SETUP_IOPOLL;
++
++			io_ring_submit_lock(ctx, needs_lock);
+ 			io_cqring_overflow_flush(ctx, false, NULL, NULL);
+-		io_ring_submit_unlock(ctx, (ctx->flags & IORING_SETUP_IOPOLL));
++			io_ring_submit_unlock(ctx, needs_lock);
++		}
+ 		if (flags & IORING_ENTER_SQ_WAKEUP)
+ 			wake_up(&ctx->sq_data->wait);
+ 		if (flags & IORING_ENTER_SQ_WAIT)
+-- 
+2.27.0
+
+From ee7c027ca613e6e5e6fc1aa32679280e6f08415a Mon Sep 17 00:00:00 2001
+From: Sasha Levin <sashal@kernel.org>
+Date: Tue, 12 Jan 2021 21:17:26 +0000
+Subject: io_uring: patch up IOPOLL overflow_flush sync
+
+From: Pavel Begunkov <asml.silence@gmail.com>
+
+commit 6c503150ae33ee19036255cfda0998463613352c upstream
+
+IOPOLL skips completion locking but keeps it under uring_lock, thus
+io_cqring_overflow_flush() and so io_cqring_events() need additional
+locking with uring_lock in some cases for IOPOLL.
+
+Remove __io_cqring_overflow_flush() from io_cqring_events(), introduce a
+wrapper around flush doing needed synchronisation and call it by hand.
+
+Signed-off-by: Pavel Begunkov <asml.silence@gmail.com>
+Signed-off-by: Jens Axboe <axboe@kernel.dk>
+Signed-off-by: Sasha Levin <sashal@kernel.org>
+---
+ fs/io_uring.c | 78 +++++++++++++++++++++++++++------------------------
+ 1 file changed, 41 insertions(+), 37 deletions(-)
+
+diff --git a/fs/io_uring.c b/fs/io_uring.c
+index 5ba312ab99786..492492a010a2f 100644
+--- a/fs/io_uring.c
++++ b/fs/io_uring.c
+@@ -1625,9 +1625,9 @@ static bool io_match_files(struct io_kiocb *req,
+ }
+ 
+ /* Returns true if there are no backlogged entries after the flush */
+-static bool io_cqring_overflow_flush(struct io_ring_ctx *ctx, bool force,
+-				     struct task_struct *tsk,
+-				     struct files_struct *files)
++static bool __io_cqring_overflow_flush(struct io_ring_ctx *ctx, bool force,
++				       struct task_struct *tsk,
++				       struct files_struct *files)
+ {
+ 	struct io_rings *rings = ctx->rings;
+ 	struct io_kiocb *req, *tmp;
+@@ -1681,6 +1681,20 @@ static bool io_cqring_overflow_flush(struct io_ring_ctx *ctx, bool force,
+ 	return cqe != NULL;
+ }
+ 
++static void io_cqring_overflow_flush(struct io_ring_ctx *ctx, bool force,
++				     struct task_struct *tsk,
++				     struct files_struct *files)
++{
++	if (test_bit(0, &ctx->cq_check_overflow)) {
++		/* iopoll syncs against uring_lock, not completion_lock */
++		if (ctx->flags & IORING_SETUP_IOPOLL)
++			mutex_lock(&ctx->uring_lock);
++		__io_cqring_overflow_flush(ctx, force, tsk, files);
++		if (ctx->flags & IORING_SETUP_IOPOLL)
++			mutex_unlock(&ctx->uring_lock);
++	}
++}
++
+ static void __io_cqring_fill_event(struct io_kiocb *req, long res, long cflags)
+ {
+ 	struct io_ring_ctx *ctx = req->ctx;
+@@ -2235,22 +2249,10 @@ static void io_double_put_req(struct io_kiocb *req)
+ 		io_free_req(req);
+ }
+ 
+-static unsigned io_cqring_events(struct io_ring_ctx *ctx, bool noflush)
++static unsigned io_cqring_events(struct io_ring_ctx *ctx)
+ {
+ 	struct io_rings *rings = ctx->rings;
+ 
+-	if (test_bit(0, &ctx->cq_check_overflow)) {
+-		/*
+-		 * noflush == true is from the waitqueue handler, just ensure
+-		 * we wake up the task, and the next invocation will flush the
+-		 * entries. We cannot safely to it from here.
+-		 */
+-		if (noflush)
+-			return -1U;
+-
+-		io_cqring_overflow_flush(ctx, false, NULL, NULL);
+-	}
+-
+ 	/* See comment at the top of this file */
+ 	smp_rmb();
+ 	return ctx->cached_cq_tail - READ_ONCE(rings->cq.head);
+@@ -2475,7 +2477,9 @@ static int io_iopoll_check(struct io_ring_ctx *ctx, long min)
+ 		 * If we do, we can potentially be spinning for commands that
+ 		 * already triggered a CQE (eg in error).
+ 		 */
+-		if (io_cqring_events(ctx, false))
++		if (test_bit(0, &ctx->cq_check_overflow))
++			__io_cqring_overflow_flush(ctx, false, NULL, NULL);
++		if (io_cqring_events(ctx))
+ 			break;
+ 
+ 		/*
+@@ -6578,7 +6582,7 @@ static int io_submit_sqes(struct io_ring_ctx *ctx, unsigned int nr)
+ 
+ 	/* if we have a backlog and couldn't flush it all, return BUSY */
+ 	if (test_bit(0, &ctx->sq_check_overflow)) {
+-		if (!io_cqring_overflow_flush(ctx, false, NULL, NULL))
++		if (!__io_cqring_overflow_flush(ctx, false, NULL, NULL))
+ 			return -EBUSY;
+ 	}
+ 
+@@ -6867,7 +6871,7 @@ struct io_wait_queue {
+ 	unsigned nr_timeouts;
+ };
+ 
+-static inline bool io_should_wake(struct io_wait_queue *iowq, bool noflush)
++static inline bool io_should_wake(struct io_wait_queue *iowq)
+ {
+ 	struct io_ring_ctx *ctx = iowq->ctx;
+ 
+@@ -6876,7 +6880,7 @@ static inline bool io_should_wake(struct io_wait_queue *iowq, bool noflush)
+ 	 * started waiting. For timeouts, we always want to return to userspace,
+ 	 * regardless of event count.
+ 	 */
+-	return io_cqring_events(ctx, noflush) >= iowq->to_wait ||
++	return io_cqring_events(ctx) >= iowq->to_wait ||
+ 			atomic_read(&ctx->cq_timeouts) != iowq->nr_timeouts;
+ }
+ 
+@@ -6886,11 +6890,13 @@ static int io_wake_function(struct wait_queue_entry *curr, unsigned int mode,
+ 	struct io_wait_queue *iowq = container_of(curr, struct io_wait_queue,
+ 							wq);
+ 
+-	/* use noflush == true, as we can't safely rely on locking context */
+-	if (!io_should_wake(iowq, true))
+-		return -1;
+-
+-	return autoremove_wake_function(curr, mode, wake_flags, key);
++	/*
++	 * Cannot safely flush overflowed CQEs from here, ensure we wake up
++	 * the task, and the next invocation will do it.
++	 */
++	if (io_should_wake(iowq) || test_bit(0, &iowq->ctx->cq_check_overflow))
++		return autoremove_wake_function(curr, mode, wake_flags, key);
++	return -1;
+ }
+ 
+ static int io_run_task_work_sig(void)
+@@ -6929,7 +6935,8 @@ static int io_cqring_wait(struct io_ring_ctx *ctx, int min_events,
+ 	int ret = 0;
+ 
+ 	do {
+-		if (io_cqring_events(ctx, false) >= min_events)
++		io_cqring_overflow_flush(ctx, false, NULL, NULL);
++		if (io_cqring_events(ctx) >= min_events)
+ 			return 0;
+ 		if (!io_run_task_work())
+ 			break;
+@@ -6951,6 +6958,7 @@ static int io_cqring_wait(struct io_ring_ctx *ctx, int min_events,
+ 	iowq.nr_timeouts = atomic_read(&ctx->cq_timeouts);
+ 	trace_io_uring_cqring_wait(ctx, min_events);
+ 	do {
++		io_cqring_overflow_flush(ctx, false, NULL, NULL);
+ 		prepare_to_wait_exclusive(&ctx->wait, &iowq.wq,
+ 						TASK_INTERRUPTIBLE);
+ 		/* make sure we run task_work before checking for signals */
+@@ -6959,8 +6967,10 @@ static int io_cqring_wait(struct io_ring_ctx *ctx, int min_events,
+ 			continue;
+ 		else if (ret < 0)
+ 			break;
+-		if (io_should_wake(&iowq, false))
++		if (io_should_wake(&iowq))
+ 			break;
++		if (test_bit(0, &ctx->cq_check_overflow))
++			continue;
+ 		schedule();
+ 	} while (1);
+ 	finish_wait(&ctx->wait, &iowq.wq);
+@@ -8385,7 +8395,8 @@ static __poll_t io_uring_poll(struct file *file, poll_table *wait)
+ 	smp_rmb();
+ 	if (!io_sqring_full(ctx))
+ 		mask |= EPOLLOUT | EPOLLWRNORM;
+-	if (io_cqring_events(ctx, false))
++	io_cqring_overflow_flush(ctx, false, NULL, NULL);
++	if (io_cqring_events(ctx))
+ 		mask |= EPOLLIN | EPOLLRDNORM;
+ 
+ 	return mask;
+@@ -8443,7 +8454,7 @@ static void io_ring_ctx_wait_and_kill(struct io_ring_ctx *ctx)
+ 	/* if force is set, the ring is going away. always drop after that */
+ 	ctx->cq_overflow_flushed = 1;
+ 	if (ctx->rings)
+-		io_cqring_overflow_flush(ctx, true, NULL, NULL);
++		__io_cqring_overflow_flush(ctx, true, NULL, NULL);
+ 	mutex_unlock(&ctx->uring_lock);
+ 
+ 	io_kill_timeouts(ctx, NULL);
+@@ -8716,9 +8727,7 @@ static void io_uring_cancel_task_requests(struct io_ring_ctx *ctx,
+ 	}
+ 
+ 	io_cancel_defer_files(ctx, task, files);
+-	io_ring_submit_lock(ctx, (ctx->flags & IORING_SETUP_IOPOLL));
+ 	io_cqring_overflow_flush(ctx, true, task, files);
+-	io_ring_submit_unlock(ctx, (ctx->flags & IORING_SETUP_IOPOLL));
+ 
+ 	while (__io_uring_cancel_task_requests(ctx, task, files)) {
+ 		io_run_task_work();
+@@ -9024,13 +9033,8 @@ SYSCALL_DEFINE6(io_uring_enter, unsigned int, fd, u32, to_submit,
+ 	 */
+ 	ret = 0;
+ 	if (ctx->flags & IORING_SETUP_SQPOLL) {
+-		if (!list_empty_careful(&ctx->cq_overflow_list)) {
+-			bool needs_lock = ctx->flags & IORING_SETUP_IOPOLL;
++		io_cqring_overflow_flush(ctx, false, NULL, NULL);
+ 
+-			io_ring_submit_lock(ctx, needs_lock);
+-			io_cqring_overflow_flush(ctx, false, NULL, NULL);
+-			io_ring_submit_unlock(ctx, needs_lock);
+-		}
+ 		if (flags & IORING_ENTER_SQ_WAKEUP)
+ 			wake_up(&ctx->sq_data->wait);
+ 		if (flags & IORING_ENTER_SQ_WAIT)
+-- 
+2.27.0
+
+From 08a9e39d3e4176993a2c00017e69020ce7fe0db1 Mon Sep 17 00:00:00 2001
+From: Sasha Levin <sashal@kernel.org>
+Date: Fri, 11 Dec 2020 09:37:30 +0800
+Subject: RDMA/hns: Avoid filling sl in high 3 bits of vlan_id
+
+From: Weihang Li <liweihang@huawei.com>
+
+[ Upstream commit 94a8c4dfcdb2b4fcb3dfafc39c1033a0b4637c86 ]
+
+Only the low 12 bits of vlan_id is valid, and service level has been
+filled in Address Vector. So there is no need to fill sl in vlan_id in
+Address Vector.
+
+Fixes: 7406c0036f85 ("RDMA/hns: Only record vlan info for HIP08")
+Link: https://lore.kernel.org/r/1607650657-35992-5-git-send-email-liweihang@huawei.com
+Signed-off-by: Weihang Li <liweihang@huawei.com>
+Signed-off-by: Jason Gunthorpe <jgg@nvidia.com>
+Signed-off-by: Sasha Levin <sashal@kernel.org>
+---
+ drivers/infiniband/hw/hns/hns_roce_ah.c | 11 +----------
+ 1 file changed, 1 insertion(+), 10 deletions(-)
+
+diff --git a/drivers/infiniband/hw/hns/hns_roce_ah.c b/drivers/infiniband/hw/hns/hns_roce_ah.c
+index 7dd3b6097226f..174b19e397124 100644
+--- a/drivers/infiniband/hw/hns/hns_roce_ah.c
++++ b/drivers/infiniband/hw/hns/hns_roce_ah.c
+@@ -36,9 +36,6 @@
+ #include <rdma/ib_cache.h>
+ #include "hns_roce_device.h"
+ 
+-#define VLAN_SL_MASK 7
+-#define VLAN_SL_SHIFT 13
+-
+ static inline u16 get_ah_udp_sport(const struct rdma_ah_attr *ah_attr)
+ {
+ 	u32 fl = ah_attr->grh.flow_label;
+@@ -81,18 +78,12 @@ int hns_roce_create_ah(struct ib_ah *ibah, struct rdma_ah_init_attr *init_attr,
+ 
+ 	/* HIP08 needs to record vlan info in Address Vector */
+ 	if (hr_dev->pci_dev->revision <= PCI_REVISION_ID_HIP08) {
+-		ah->av.vlan_en = 0;
+-
+ 		ret = rdma_read_gid_l2_fields(ah_attr->grh.sgid_attr,
+ 					      &ah->av.vlan_id, NULL);
+ 		if (ret)
+ 			return ret;
+ 
+-		if (ah->av.vlan_id < VLAN_N_VID) {
+-			ah->av.vlan_en = 1;
+-			ah->av.vlan_id |= (rdma_ah_get_sl(ah_attr) & VLAN_SL_MASK) <<
+-					  VLAN_SL_SHIFT;
+-		}
++		ah->av.vlan_en = ah->av.vlan_id < VLAN_N_VID;
+ 	}
+ 
+ 	return ret;
+-- 
+2.27.0
+
+From 34f1d9c54957d6479aafa79996200a591fe687c7 Mon Sep 17 00:00:00 2001
+From: Sasha Levin <sashal@kernel.org>
+Date: Tue, 5 Jan 2021 16:50:38 -0800
+Subject: iommu/arm-smmu-qcom: Initialize SCTLR of the bypass context
+
+From: Bjorn Andersson <bjorn.andersson@linaro.org>
+
+[ Upstream commit aded8c7c2b72f846a07a2c736b8e75bb8cf50a87 ]
+
+On SM8150 it's occasionally observed that the boot hangs in between the
+writing of SMEs and context banks in arm_smmu_device_reset().
+
+The problem seems to coincide with a display refresh happening after
+updating the stream mapping, but before clearing - and there by
+disabling translation - the context bank picked to emulate translation
+bypass.
+
+Resolve this by explicitly disabling the bypass context already in
+cfg_probe.
+
+Fixes: f9081b8ff593 ("iommu/arm-smmu-qcom: Implement S2CR quirk")
+Signed-off-by: Bjorn Andersson <bjorn.andersson@linaro.org>
+Link: https://lore.kernel.org/r/20210106005038.4152731-1-bjorn.andersson@linaro.org
+Signed-off-by: Will Deacon <will@kernel.org>
+Signed-off-by: Sasha Levin <sashal@kernel.org>
+---
+ drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c b/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
+index ef37ccfa82562..0eba5e883e3f1 100644
+--- a/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
++++ b/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
+@@ -55,6 +55,8 @@ static int qcom_smmu_cfg_probe(struct arm_smmu_device *smmu)
+ 
+ 		set_bit(qsmmu->bypass_cbndx, smmu->context_map);
+ 
++		arm_smmu_cb_write(smmu, qsmmu->bypass_cbndx, ARM_SMMU_CB_SCTLR, 0);
++
+ 		reg = FIELD_PREP(ARM_SMMU_CBAR_TYPE, CBAR_TYPE_S1_TRANS_S2_BYPASS);
+ 		arm_smmu_gr1_write(smmu, ARM_SMMU_GR1_CBAR(qsmmu->bypass_cbndx), reg);
+ 	}
+-- 
+2.27.0
+
+From a7ea7e813b40876b5608a2dea63e0cb1a6b1a12b Mon Sep 17 00:00:00 2001
+From: Sasha Levin <sashal@kernel.org>
+Date: Thu, 29 Oct 2020 17:00:47 +0000
+Subject: drm/panfrost: Don't corrupt the queue mutex on open/close
+
+From: Steven Price <steven.price@arm.com>
+
+[ Upstream commit a17d609e3e216c406f7c0cec2a94086a4401ac06 ]
+
+The mutex within the panfrost_queue_state should have the lifetime of
+the queue, however it was erroneously initialised/destroyed during
+panfrost_job_{open,close} which is called every time a client
+opens/closes the drm node.
+
+Move the initialisation/destruction to panfrost_job_{init,fini} where it
+belongs.
+
+Fixes: 1a11a88cfd9a ("drm/panfrost: Fix job timeout handling")
+Signed-off-by: Steven Price <steven.price@arm.com>
+Reviewed-by: Boris Brezillon <boris.brezillon@collabora.com>
+Signed-off-by: Boris Brezillon <boris.brezillon@collabora.com>
+Link: https://patchwork.freedesktop.org/patch/msgid/20201029170047.30564-1-steven.price@arm.com
+Signed-off-by: Sasha Levin <sashal@kernel.org>
+---
+ drivers/gpu/drm/panfrost/panfrost_job.c | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/gpu/drm/panfrost/panfrost_job.c b/drivers/gpu/drm/panfrost/panfrost_job.c
+index 1ce2001106e56..517dfb247a801 100644
+--- a/drivers/gpu/drm/panfrost/panfrost_job.c
++++ b/drivers/gpu/drm/panfrost/panfrost_job.c
+@@ -617,6 +617,8 @@ int panfrost_job_init(struct panfrost_device *pfdev)
+ 	}
+ 
+ 	for (j = 0; j < NUM_JOB_SLOTS; j++) {
++		mutex_init(&js->queue[j].lock);
++
+ 		js->queue[j].fence_context = dma_fence_context_alloc(1);
+ 
+ 		ret = drm_sched_init(&js->queue[j].sched,
+@@ -647,8 +649,10 @@ void panfrost_job_fini(struct panfrost_device *pfdev)
+ 
+ 	job_write(pfdev, JOB_INT_MASK, 0);
+ 
+-	for (j = 0; j < NUM_JOB_SLOTS; j++)
++	for (j = 0; j < NUM_JOB_SLOTS; j++) {
+ 		drm_sched_fini(&js->queue[j].sched);
++		mutex_destroy(&js->queue[j].lock);
++	}
+ 
+ }
+ 
+@@ -660,7 +664,6 @@ int panfrost_job_open(struct panfrost_file_priv *panfrost_priv)
+ 	int ret, i;
+ 
+ 	for (i = 0; i < NUM_JOB_SLOTS; i++) {
+-		mutex_init(&js->queue[i].lock);
+ 		sched = &js->queue[i].sched;
+ 		ret = drm_sched_entity_init(&panfrost_priv->sched_entity[i],
+ 					    DRM_SCHED_PRIORITY_NORMAL, &sched,
+@@ -677,10 +680,8 @@ void panfrost_job_close(struct panfrost_file_priv *panfrost_priv)
+ 	struct panfrost_job_slot *js = pfdev->js;
+ 	int i;
+ 
+-	for (i = 0; i < NUM_JOB_SLOTS; i++) {
++	for (i = 0; i < NUM_JOB_SLOTS; i++)
+ 		drm_sched_entity_destroy(&panfrost_priv->sched_entity[i]);
+-		mutex_destroy(&js->queue[i].lock);
+-	}
+ }
+ 
+ int panfrost_job_is_idle(struct panfrost_device *pfdev)
+-- 
+2.27.0
+
+From fac52c94e5633b99768ac5a8d5255bb4da4882e0 Mon Sep 17 00:00:00 2001
+From: Sasha Levin <sashal@kernel.org>
+Date: Wed, 6 Jan 2021 16:09:26 +0000
+Subject: io_uring: Fix return value from alloc_fixed_file_ref_node
+
+From: Matthew Wilcox (Oracle) <willy@infradead.org>
+
+[ Upstream commit 3e2224c5867fead6c0b94b84727cc676ac6353a3 ]
+
+alloc_fixed_file_ref_node() currently returns an ERR_PTR on failure.
+io_sqe_files_unregister() expects it to return NULL and since it can only
+return -ENOMEM, it makes more sense to change alloc_fixed_file_ref_node()
+to behave that way.
+
+Fixes: 1ffc54220c44 ("io_uring: fix io_sqe_files_unregister() hangs")
+Reported-by: Dan Carpenter <dan.carpenter@oracle.com>
+Signed-off-by: Matthew Wilcox (Oracle) <willy@infradead.org>
+Signed-off-by: Jens Axboe <axboe@kernel.dk>
+Signed-off-by: Sasha Levin <sashal@kernel.org>
+---
+ fs/io_uring.c | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/fs/io_uring.c b/fs/io_uring.c
+index 492492a010a2f..4833b68f1a1cc 100644
+--- a/fs/io_uring.c
++++ b/fs/io_uring.c
+@@ -7461,12 +7461,12 @@ static struct fixed_file_ref_node *alloc_fixed_file_ref_node(
+ 
+ 	ref_node = kzalloc(sizeof(*ref_node), GFP_KERNEL);
+ 	if (!ref_node)
+-		return ERR_PTR(-ENOMEM);
++		return NULL;
+ 
+ 	if (percpu_ref_init(&ref_node->refs, io_file_data_ref_zero,
+ 			    0, GFP_KERNEL)) {
+ 		kfree(ref_node);
+-		return ERR_PTR(-ENOMEM);
++		return NULL;
+ 	}
+ 	INIT_LIST_HEAD(&ref_node->node);
+ 	INIT_LIST_HEAD(&ref_node->file_list);
+@@ -7560,9 +7560,9 @@ static int io_sqe_files_register(struct io_ring_ctx *ctx, void __user *arg,
+ 	}
+ 
+ 	ref_node = alloc_fixed_file_ref_node(ctx);
+-	if (IS_ERR(ref_node)) {
++	if (!ref_node) {
+ 		io_sqe_files_unregister(ctx);
+-		return PTR_ERR(ref_node);
++		return -ENOMEM;
+ 	}
+ 
+ 	io_sqe_files_set_node(file_data, ref_node);
+@@ -7662,8 +7662,8 @@ static int __io_sqe_files_update(struct io_ring_ctx *ctx,
+ 		return -EINVAL;
+ 
+ 	ref_node = alloc_fixed_file_ref_node(ctx);
+-	if (IS_ERR(ref_node))
+-		return PTR_ERR(ref_node);
++	if (!ref_node)
++		return -ENOMEM;
+ 
+ 	done = 0;
+ 	fds = u64_to_user_ptr(up->fds);
+-- 
+2.27.0
+
+From 6f466a97ae5a0023407a3d45b04299c6351661fb Mon Sep 17 00:00:00 2001
+From: Sasha Levin <sashal@kernel.org>
+Date: Thu, 3 Dec 2020 23:31:26 +0100
+Subject: scsi: ufs: Fix -Wsometimes-uninitialized warning
+
+From: Arnd Bergmann <arnd@arndb.de>
+
+[ Upstream commit 4c60244dc37262023d24b167e245055c06bc0b77 ]
+
+clang complains about a possible code path in which a variable is used
+without an initialization:
+
+drivers/scsi/ufs/ufshcd.c:7690:3: error: variable 'sdp' is used uninitialized whenever 'if' condition is false [-Werror,-Wsometimes-uninitialized]
+                BUG_ON(1);
+                ^~~~~~~~~
+include/asm-generic/bug.h:63:36: note: expanded from macro 'BUG_ON'
+ #define BUG_ON(condition) do { if (unlikely(condition)) BUG(); } while (0)
+                                   ^~~~~~~~~~~~~~~~~~~
+
+Turn the BUG_ON(1) into an unconditional BUG() that makes it clear to clang
+that this code path is never hit.
+
+Link: https://lore.kernel.org/r/20201203223137.1205933-1-arnd@kernel.org
+Fixes: 4f3e900b6282 ("scsi: ufs: Clear UAC for FFU and RPMB LUNs")
+Reviewed-by: Avri Altman <avri.altman@wdc.com>
+Signed-off-by: Arnd Bergmann <arnd@arndb.de>
+Signed-off-by: Martin K. Petersen <martin.petersen@oracle.com>
+Signed-off-by: Sasha Levin <sashal@kernel.org>
+---
+ drivers/scsi/ufs/ufshcd.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/scsi/ufs/ufshcd.c b/drivers/scsi/ufs/ufshcd.c
+index 02f161468daf5..7558b4abebfc5 100644
+--- a/drivers/scsi/ufs/ufshcd.c
++++ b/drivers/scsi/ufs/ufshcd.c
+@@ -7651,7 +7651,7 @@ static int ufshcd_clear_ua_wlun(struct ufs_hba *hba, u8 wlun)
+ 	else if (wlun == UFS_UPIU_RPMB_WLUN)
+ 		sdp = hba->sdev_rpmb;
+ 	else
+-		BUG_ON(1);
++		BUG();
+ 	if (sdp) {
+ 		ret = scsi_device_get(sdp);
+ 		if (!ret && !scsi_device_online(sdp)) {
+-- 
+2.27.0
+
+From 6eb244d3bc63d0f0918bb81bbe3b4baec0ca6a7e Mon Sep 17 00:00:00 2001
+From: Sasha Levin <sashal@kernel.org>
+Date: Fri, 13 Nov 2020 11:21:49 +0000
+Subject: btrfs: skip unnecessary searches for xattrs when logging an inode
+
+From: Filipe Manana <fdmanana@suse.com>
+
+[ Upstream commit f2f121ab500d0457cc9c6f54269d21ffdf5bd304 ]
+
+Every time we log an inode we lookup in the fs/subvol tree for xattrs and
+if we have any, log them into the log tree. However it is very common to
+have inodes without any xattrs, so doing the search wastes times, but more
+importantly it adds contention on the fs/subvol tree locks, either making
+the logging code block and wait for tree locks or making the logging code
+making other concurrent operations block and wait.
+
+The most typical use cases where xattrs are used are when capabilities or
+ACLs are defined for an inode, or when SELinux is enabled.
+
+This change makes the logging code detect when an inode does not have
+xattrs and skip the xattrs search the next time the inode is logged,
+unless the inode is evicted and loaded again or a xattr is added to the
+inode. Therefore skipping the search for xattrs on inodes that don't ever
+have xattrs and are fsynced with some frequency.
+
+The following script that calls dbench was used to measure the impact of
+this change on a VM with 8 CPUs, 16Gb of ram, using a raw NVMe device
+directly (no intermediary filesystem on the host) and using a non-debug
+kernel (default configuration on Debian distributions):
+
+  $ cat test.sh
+  #!/bin/bash
+
+  DEV=/dev/sdk
+  MNT=/mnt/sdk
+  MOUNT_OPTIONS="-o ssd"
+
+  mkfs.btrfs -f -m single -d single $DEV
+  mount $MOUNT_OPTIONS $DEV $MNT
+
+  dbench -D $MNT -t 200 40
+
+  umount $MNT
+
+The results before this change:
+
+ Operation      Count    AvgLat    MaxLat
+ ----------------------------------------
+ NTCreateX    5761605     0.172   312.057
+ Close        4232452     0.002    10.927
+ Rename        243937     1.406   277.344
+ Unlink       1163456     0.631   298.402
+ Deltree          160    11.581   221.107
+ Mkdir             80     0.003     0.005
+ Qpathinfo    5221410     0.065   122.309
+ Qfileinfo     915432     0.001     3.333
+ Qfsinfo       957555     0.003     3.992
+ Sfileinfo     469244     0.023    20.494
+ Find         2018865     0.448   123.659
+ WriteX       2874851     0.049   118.529
+ ReadX        9030579     0.004    21.654
+ LockX          18754     0.003     4.423
+ UnlockX        18754     0.002     0.331
+ Flush         403792    10.944   359.494
+
+Throughput 908.444 MB/sec  40 clients  40 procs  max_latency=359.500 ms
+
+The results after this change:
+
+ Operation      Count    AvgLat    MaxLat
+ ----------------------------------------
+ NTCreateX    6442521     0.159   230.693
+ Close        4732357     0.002    10.972
+ Rename        272809     1.293   227.398
+ Unlink       1301059     0.563   218.500
+ Deltree          160     7.796    54.887
+ Mkdir             80     0.008     0.478
+ Qpathinfo    5839452     0.047   124.330
+ Qfileinfo    1023199     0.001     4.996
+ Qfsinfo      1070760     0.003     5.709
+ Sfileinfo     524790     0.033    21.765
+ Find         2257658     0.314   125.611
+ WriteX       3211520     0.040   232.135
+ ReadX        10098969     0.004    25.340
+ LockX          20974     0.003     1.569
+ UnlockX        20974     0.002     3.475
+ Flush         451553    10.287   331.037
+
+Throughput 1011.77 MB/sec  40 clients  40 procs  max_latency=331.045 ms
+
++10.8% throughput, -8.2% max latency
+
+Reviewed-by: Josef Bacik <josef@toxicpanda.com>
+Signed-off-by: Filipe Manana <fdmanana@suse.com>
+Reviewed-by: David Sterba <dsterba@suse.com>
+Signed-off-by: David Sterba <dsterba@suse.com>
+Signed-off-by: Sasha Levin <sashal@kernel.org>
+---
+ fs/btrfs/btrfs_inode.h | 7 +++++++
+ fs/btrfs/tree-log.c    | 8 ++++++++
+ fs/btrfs/xattr.c       | 4 +++-
+ 3 files changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/fs/btrfs/btrfs_inode.h b/fs/btrfs/btrfs_inode.h
+index 92dd86bceae31..c974f7fe614ac 100644
+--- a/fs/btrfs/btrfs_inode.h
++++ b/fs/btrfs/btrfs_inode.h
+@@ -35,6 +35,13 @@ enum {
+ 	BTRFS_INODE_IN_DELALLOC_LIST,
+ 	BTRFS_INODE_HAS_PROPS,
+ 	BTRFS_INODE_SNAPSHOT_FLUSH,
++	/*
++	 * Set and used when logging an inode and it serves to signal that an
++	 * inode does not have xattrs, so subsequent fsyncs can avoid searching
++	 * for xattrs to log. This bit must be cleared whenever a xattr is added
++	 * to an inode.
++	 */
++	BTRFS_INODE_NO_XATTRS,
+ };
+ 
+ /* in memory btrfs inode */
+diff --git a/fs/btrfs/tree-log.c b/fs/btrfs/tree-log.c
+index 56cbc1706b6f7..5b11bb9770664 100644
+--- a/fs/btrfs/tree-log.c
++++ b/fs/btrfs/tree-log.c
+@@ -4571,6 +4571,10 @@ static int btrfs_log_all_xattrs(struct btrfs_trans_handle *trans,
+ 	const u64 ino = btrfs_ino(inode);
+ 	int ins_nr = 0;
+ 	int start_slot = 0;
++	bool found_xattrs = false;
++
++	if (test_bit(BTRFS_INODE_NO_XATTRS, &inode->runtime_flags))
++		return 0;
+ 
+ 	key.objectid = ino;
+ 	key.type = BTRFS_XATTR_ITEM_KEY;
+@@ -4609,6 +4613,7 @@ static int btrfs_log_all_xattrs(struct btrfs_trans_handle *trans,
+ 			start_slot = slot;
+ 		ins_nr++;
+ 		path->slots[0]++;
++		found_xattrs = true;
+ 		cond_resched();
+ 	}
+ 	if (ins_nr > 0) {
+@@ -4618,6 +4623,9 @@ static int btrfs_log_all_xattrs(struct btrfs_trans_handle *trans,
+ 			return ret;
+ 	}
+ 
++	if (!found_xattrs)
++		set_bit(BTRFS_INODE_NO_XATTRS, &inode->runtime_flags);
++
+ 	return 0;
+ }
+ 
+diff --git a/fs/btrfs/xattr.c b/fs/btrfs/xattr.c
+index 95d9aebff2c4b..e51774201d53b 100644
+--- a/fs/btrfs/xattr.c
++++ b/fs/btrfs/xattr.c
+@@ -213,9 +213,11 @@ int btrfs_setxattr(struct btrfs_trans_handle *trans, struct inode *inode,
+ 	}
+ out:
+ 	btrfs_free_path(path);
+-	if (!ret)
++	if (!ret) {
+ 		set_bit(BTRFS_INODE_COPY_EVERYTHING,
+ 			&BTRFS_I(inode)->runtime_flags);
++		clear_bit(BTRFS_INODE_NO_XATTRS, &BTRFS_I(inode)->runtime_flags);
++	}
+ 	return ret;
+ }
+ 
+-- 
+2.27.0
+
+From bfae3577aadad7c18806ee2a27d7620f898d6cfe Mon Sep 17 00:00:00 2001
+From: Sasha Levin <sashal@kernel.org>
+Date: Wed, 2 Dec 2020 11:55:58 +0000
+Subject: btrfs: fix deadlock when cloning inline extent and low on free
+ metadata space
+
+From: Filipe Manana <fdmanana@suse.com>
+
+[ Upstream commit 3d45f221ce627d13e2e6ef3274f06750c84a6542 ]
+
+When cloning an inline extent there are cases where we can not just copy
+the inline extent from the source range to the target range (e.g. when the
+target range starts at an offset greater than zero). In such cases we copy
+the inline extent's data into a page of the destination inode and then
+dirty that page. However, after that we will need to start a transaction
+for each processed extent and, if we are ever low on available metadata
+space, we may need to flush existing delalloc for all dirty inodes in an
+attempt to release metadata space - if that happens we may deadlock:
+
+* the async reclaim task queued a delalloc work to flush delalloc for
+  the destination inode of the clone operation;
+
+* the task executing that delalloc work gets blocked waiting for the
+  range with the dirty page to be unlocked, which is currently locked
+  by the task doing the clone operation;
+
+* the async reclaim task blocks waiting for the delalloc work to complete;
+
+* the cloning task is waiting on the waitqueue of its reservation ticket
+  while holding the range with the dirty page locked in the inode's
+  io_tree;
+
+* if metadata space is not released by some other task (like delalloc for
+  some other inode completing for example), the clone task waits forever
+  and as a consequence the delalloc work and async reclaim tasks will hang
+  forever as well. Releasing more space on the other hand may require
+  starting a transaction, which will hang as well when trying to reserve
+  metadata space, resulting in a deadlock between all these tasks.
+
+When this happens, traces like the following show up in dmesg/syslog:
+
+  [87452.323003] INFO: task kworker/u16:11:1810830 blocked for more than 120 seconds.
+  [87452.323644]       Tainted: G    B   W         5.10.0-rc4-btrfs-next-73 #1
+  [87452.324248] "echo 0 > /proc/sys/kernel/hung_task_timeout_secs" disables this message.
+  [87452.324852] task:kworker/u16:11  state:D stack:    0 pid:1810830 ppid:     2 flags:0x00004000
+  [87452.325520] Workqueue: btrfs-flush_delalloc btrfs_work_helper [btrfs]
+  [87452.326136] Call Trace:
+  [87452.326737]  __schedule+0x5d1/0xcf0
+  [87452.327390]  schedule+0x45/0xe0
+  [87452.328174]  lock_extent_bits+0x1e6/0x2d0 [btrfs]
+  [87452.328894]  ? finish_wait+0x90/0x90
+  [87452.329474]  btrfs_invalidatepage+0x32c/0x390 [btrfs]
+  [87452.330133]  ? __mod_memcg_state+0x8e/0x160
+  [87452.330738]  __extent_writepage+0x2d4/0x400 [btrfs]
+  [87452.331405]  extent_write_cache_pages+0x2b2/0x500 [btrfs]
+  [87452.332007]  ? lock_release+0x20e/0x4c0
+  [87452.332557]  ? trace_hardirqs_on+0x1b/0xf0
+  [87452.333127]  extent_writepages+0x43/0x90 [btrfs]
+  [87452.333653]  ? lock_acquire+0x1a3/0x490
+  [87452.334177]  do_writepages+0x43/0xe0
+  [87452.334699]  ? __filemap_fdatawrite_range+0xa4/0x100
+  [87452.335720]  __filemap_fdatawrite_range+0xc5/0x100
+  [87452.336500]  btrfs_run_delalloc_work+0x17/0x40 [btrfs]
+  [87452.337216]  btrfs_work_helper+0xf1/0x600 [btrfs]
+  [87452.337838]  process_one_work+0x24e/0x5e0
+  [87452.338437]  worker_thread+0x50/0x3b0
+  [87452.339137]  ? process_one_work+0x5e0/0x5e0
+  [87452.339884]  kthread+0x153/0x170
+  [87452.340507]  ? kthread_mod_delayed_work+0xc0/0xc0
+  [87452.341153]  ret_from_fork+0x22/0x30
+  [87452.341806] INFO: task kworker/u16:1:2426217 blocked for more than 120 seconds.
+  [87452.342487]       Tainted: G    B   W         5.10.0-rc4-btrfs-next-73 #1
+  [87452.343274] "echo 0 > /proc/sys/kernel/hung_task_timeout_secs" disables this message.
+  [87452.344049] task:kworker/u16:1   state:D stack:    0 pid:2426217 ppid:     2 flags:0x00004000
+  [87452.344974] Workqueue: events_unbound btrfs_async_reclaim_metadata_space [btrfs]
+  [87452.345655] Call Trace:
+  [87452.346305]  __schedule+0x5d1/0xcf0
+  [87452.346947]  ? kvm_clock_read+0x14/0x30
+  [87452.347676]  ? wait_for_completion+0x81/0x110
+  [87452.348389]  schedule+0x45/0xe0
+  [87452.349077]  schedule_timeout+0x30c/0x580
+  [87452.349718]  ? _raw_spin_unlock_irqrestore+0x3c/0x60
+  [87452.350340]  ? lock_acquire+0x1a3/0x490
+  [87452.351006]  ? try_to_wake_up+0x7a/0xa20
+  [87452.351541]  ? lock_release+0x20e/0x4c0
+  [87452.352040]  ? lock_acquired+0x199/0x490
+  [87452.352517]  ? wait_for_completion+0x81/0x110
+  [87452.353000]  wait_for_completion+0xab/0x110
+  [87452.353490]  start_delalloc_inodes+0x2af/0x390 [btrfs]
+  [87452.353973]  btrfs_start_delalloc_roots+0x12d/0x250 [btrfs]
+  [87452.354455]  flush_space+0x24f/0x660 [btrfs]
+  [87452.355063]  btrfs_async_reclaim_metadata_space+0x1bb/0x480 [btrfs]
+  [87452.355565]  process_one_work+0x24e/0x5e0
+  [87452.356024]  worker_thread+0x20f/0x3b0
+  [87452.356487]  ? process_one_work+0x5e0/0x5e0
+  [87452.356973]  kthread+0x153/0x170
+  [87452.357434]  ? kthread_mod_delayed_work+0xc0/0xc0
+  [87452.357880]  ret_from_fork+0x22/0x30
+  (...)
+  < stack traces of several tasks waiting for the locks of the inodes of the
+    clone operation >
+  (...)
+  [92867.444138] RSP: 002b:00007ffc3371bbe8 EFLAGS: 00000246 ORIG_RAX: 0000000000000052
+  [92867.444624] RAX: ffffffffffffffda RBX: 00007ffc3371bea0 RCX: 00007f61efe73f97
+  [92867.445116] RDX: 0000000000000000 RSI: 0000560fbd5d7a40 RDI: 0000560fbd5d8960
+  [92867.445595] RBP: 00007ffc3371beb0 R08: 0000000000000001 R09: 0000000000000003
+  [92867.446070] R10: 00007ffc3371b996 R11: 0000000000000246 R12: 0000000000000000
+  [92867.446820] R13: 000000000000001f R14: 00007ffc3371bea0 R15: 00007ffc3371beb0
+  [92867.447361] task:fsstress        state:D stack:    0 pid:2508238 ppid:2508153 flags:0x00004000
+  [92867.447920] Call Trace:
+  [92867.448435]  __schedule+0x5d1/0xcf0
+  [92867.448934]  ? _raw_spin_unlock_irqrestore+0x3c/0x60
+  [92867.449423]  schedule+0x45/0xe0
+  [92867.449916]  __reserve_bytes+0x4a4/0xb10 [btrfs]
+  [92867.450576]  ? finish_wait+0x90/0x90
+  [92867.451202]  btrfs_reserve_metadata_bytes+0x29/0x190 [btrfs]
+  [92867.451815]  btrfs_block_rsv_add+0x1f/0x50 [btrfs]
+  [92867.452412]  start_transaction+0x2d1/0x760 [btrfs]
+  [92867.453216]  clone_copy_inline_extent+0x333/0x490 [btrfs]
+  [92867.453848]  ? lock_release+0x20e/0x4c0
+  [92867.454539]  ? btrfs_search_slot+0x9a7/0xc30 [btrfs]
+  [92867.455218]  btrfs_clone+0x569/0x7e0 [btrfs]
+  [92867.455952]  btrfs_clone_files+0xf6/0x150 [btrfs]
+  [92867.456588]  btrfs_remap_file_range+0x324/0x3d0 [btrfs]
+  [92867.457213]  do_clone_file_range+0xd4/0x1f0
+  [92867.457828]  vfs_clone_file_range+0x4d/0x230
+  [92867.458355]  ? lock_release+0x20e/0x4c0
+  [92867.458890]  ioctl_file_clone+0x8f/0xc0
+  [92867.459377]  do_vfs_ioctl+0x342/0x750
+  [92867.459913]  __x64_sys_ioctl+0x62/0xb0
+  [92867.460377]  do_syscall_64+0x33/0x80
+  [92867.460842]  entry_SYSCALL_64_after_hwframe+0x44/0xa9
+  (...)
+  < stack traces of more tasks blocked on metadata reservation like the clone
+    task above, because the async reclaim task has deadlocked >
+  (...)
+
+Another thing to notice is that the worker task that is deadlocked when
+trying to flush the destination inode of the clone operation is at
+btrfs_invalidatepage(). This is simply because the clone operation has a
+destination offset greater than the i_size and we only update the i_size
+of the destination file after cloning an extent (just like we do in the
+buffered write path).
+
+Since the async reclaim path uses btrfs_start_delalloc_roots() to trigger
+the flushing of delalloc for all inodes that have delalloc, add a runtime
+flag to an inode to signal it should not be flushed, and for inodes with
+that flag set, start_delalloc_inodes() will simply skip them. When the
+cloning code needs to dirty a page to copy an inline extent, set that flag
+on the inode and then clear it when the clone operation finishes.
+
+This could be sporadically triggered with test case generic/269 from
+fstests, which exercises many fsstress processes running in parallel with
+several dd processes filling up the entire filesystem.
+
+CC: stable@vger.kernel.org # 5.9+
+Fixes: 05a5a7621ce6 ("Btrfs: implement full reflink support for inline extents")
+Reviewed-by: Josef Bacik <josef@toxicpanda.com>
+Signed-off-by: Filipe Manana <fdmanana@suse.com>
+Reviewed-by: David Sterba <dsterba@suse.com>
+Signed-off-by: David Sterba <dsterba@suse.com>
+Signed-off-by: Sasha Levin <sashal@kernel.org>
+---
+ fs/btrfs/btrfs_inode.h |  9 +++++++++
+ fs/btrfs/ctree.h       |  3 ++-
+ fs/btrfs/dev-replace.c |  2 +-
+ fs/btrfs/inode.c       | 15 +++++++++++----
+ fs/btrfs/ioctl.c       |  2 +-
+ fs/btrfs/reflink.c     | 15 +++++++++++++++
+ fs/btrfs/space-info.c  |  2 +-
+ 7 files changed, 40 insertions(+), 8 deletions(-)
+
+diff --git a/fs/btrfs/btrfs_inode.h b/fs/btrfs/btrfs_inode.h
+index c974f7fe614ac..8de4bf8edb9c0 100644
+--- a/fs/btrfs/btrfs_inode.h
++++ b/fs/btrfs/btrfs_inode.h
+@@ -42,6 +42,15 @@ enum {
+ 	 * to an inode.
+ 	 */
+ 	BTRFS_INODE_NO_XATTRS,
++	/*
++	 * Set when we are in a context where we need to start a transaction and
++	 * have dirty pages with the respective file range locked. This is to
++	 * ensure that when reserving space for the transaction, if we are low
++	 * on available space and need to flush delalloc, we will not flush
++	 * delalloc for this inode, because that could result in a deadlock (on
++	 * the file range, inode's io_tree).
++	 */
++	BTRFS_INODE_NO_DELALLOC_FLUSH,
+ };
+ 
+ /* in memory btrfs inode */
+diff --git a/fs/btrfs/ctree.h b/fs/btrfs/ctree.h
+index 62461239600fc..e01545538e07f 100644
+--- a/fs/btrfs/ctree.h
++++ b/fs/btrfs/ctree.h
+@@ -3001,7 +3001,8 @@ int btrfs_truncate_inode_items(struct btrfs_trans_handle *trans,
+ 			       u32 min_type);
+ 
+ int btrfs_start_delalloc_snapshot(struct btrfs_root *root);
+-int btrfs_start_delalloc_roots(struct btrfs_fs_info *fs_info, u64 nr);
++int btrfs_start_delalloc_roots(struct btrfs_fs_info *fs_info, u64 nr,
++			       bool in_reclaim_context);
+ int btrfs_set_extent_delalloc(struct btrfs_inode *inode, u64 start, u64 end,
+ 			      unsigned int extra_bits,
+ 			      struct extent_state **cached_state);
+diff --git a/fs/btrfs/dev-replace.c b/fs/btrfs/dev-replace.c
+index 10638537b9ef3..d297804631829 100644
+--- a/fs/btrfs/dev-replace.c
++++ b/fs/btrfs/dev-replace.c
+@@ -703,7 +703,7 @@ static int btrfs_dev_replace_finishing(struct btrfs_fs_info *fs_info,
+ 	 * flush all outstanding I/O and inode extent mappings before the
+ 	 * copy operation is declared as being finished
+ 	 */
+-	ret = btrfs_start_delalloc_roots(fs_info, U64_MAX);
++	ret = btrfs_start_delalloc_roots(fs_info, U64_MAX, false);
+ 	if (ret) {
+ 		mutex_unlock(&dev_replace->lock_finishing_cancel_unmount);
+ 		return ret;
+diff --git a/fs/btrfs/inode.c b/fs/btrfs/inode.c
+index 7e8d8169779d2..07479250221da 100644
+--- a/fs/btrfs/inode.c
++++ b/fs/btrfs/inode.c
+@@ -9389,7 +9389,8 @@ static struct btrfs_delalloc_work *btrfs_alloc_delalloc_work(struct inode *inode
+  * some fairly slow code that needs optimization. This walks the list
+  * of all the inodes with pending delalloc and forces them to disk.
+  */
+-static int start_delalloc_inodes(struct btrfs_root *root, u64 *nr, bool snapshot)
++static int start_delalloc_inodes(struct btrfs_root *root, u64 *nr, bool snapshot,
++				 bool in_reclaim_context)
+ {
+ 	struct btrfs_inode *binode;
+ 	struct inode *inode;
+@@ -9410,6 +9411,11 @@ static int start_delalloc_inodes(struct btrfs_root *root, u64 *nr, bool snapshot
+ 
+ 		list_move_tail(&binode->delalloc_inodes,
+ 			       &root->delalloc_inodes);
++
++		if (in_reclaim_context &&
++		    test_bit(BTRFS_INODE_NO_DELALLOC_FLUSH, &binode->runtime_flags))
++			continue;
++
+ 		inode = igrab(&binode->vfs_inode);
+ 		if (!inode) {
+ 			cond_resched_lock(&root->delalloc_lock);
+@@ -9463,10 +9469,11 @@ int btrfs_start_delalloc_snapshot(struct btrfs_root *root)
+ 	if (test_bit(BTRFS_FS_STATE_ERROR, &fs_info->fs_state))
+ 		return -EROFS;
+ 
+-	return start_delalloc_inodes(root, &nr, true);
++	return start_delalloc_inodes(root, &nr, true, false);
+ }
+ 
+-int btrfs_start_delalloc_roots(struct btrfs_fs_info *fs_info, u64 nr)
++int btrfs_start_delalloc_roots(struct btrfs_fs_info *fs_info, u64 nr,
++			       bool in_reclaim_context)
+ {
+ 	struct btrfs_root *root;
+ 	struct list_head splice;
+@@ -9489,7 +9496,7 @@ int btrfs_start_delalloc_roots(struct btrfs_fs_info *fs_info, u64 nr)
+ 			       &fs_info->delalloc_roots);
+ 		spin_unlock(&fs_info->delalloc_root_lock);
+ 
+-		ret = start_delalloc_inodes(root, &nr, false);
++		ret = start_delalloc_inodes(root, &nr, false, in_reclaim_context);
+ 		btrfs_put_root(root);
+ 		if (ret < 0)
+ 			goto out;
+diff --git a/fs/btrfs/ioctl.c b/fs/btrfs/ioctl.c
+index e8ca229a216be..bd46e107f955e 100644
+--- a/fs/btrfs/ioctl.c
++++ b/fs/btrfs/ioctl.c
+@@ -4940,7 +4940,7 @@ long btrfs_ioctl(struct file *file, unsigned int
+ 	case BTRFS_IOC_SYNC: {
+ 		int ret;
+ 
+-		ret = btrfs_start_delalloc_roots(fs_info, U64_MAX);
++		ret = btrfs_start_delalloc_roots(fs_info, U64_MAX, false);
+ 		if (ret)
+ 			return ret;
+ 		ret = btrfs_sync_fs(inode->i_sb, 1);
+diff --git a/fs/btrfs/reflink.c b/fs/btrfs/reflink.c
+index 99aa87c089121..a646af95dd100 100644
+--- a/fs/btrfs/reflink.c
++++ b/fs/btrfs/reflink.c
+@@ -89,6 +89,19 @@ static int copy_inline_to_page(struct btrfs_inode *inode,
+ 	if (ret)
+ 		goto out_unlock;
+ 
++	/*
++	 * After dirtying the page our caller will need to start a transaction,
++	 * and if we are low on metadata free space, that can cause flushing of
++	 * delalloc for all inodes in order to get metadata space released.
++	 * However we are holding the range locked for the whole duration of
++	 * the clone/dedupe operation, so we may deadlock if that happens and no
++	 * other task releases enough space. So mark this inode as not being
++	 * possible to flush to avoid such deadlock. We will clear that flag
++	 * when we finish cloning all extents, since a transaction is started
++	 * after finding each extent to clone.
++	 */
++	set_bit(BTRFS_INODE_NO_DELALLOC_FLUSH, &inode->runtime_flags);
++
+ 	if (comp_type == BTRFS_COMPRESS_NONE) {
+ 		char *map;
+ 
+@@ -547,6 +560,8 @@ static int btrfs_clone(struct inode *src, struct inode *inode,
+ out:
+ 	btrfs_free_path(path);
+ 	kvfree(buf);
++	clear_bit(BTRFS_INODE_NO_DELALLOC_FLUSH, &BTRFS_I(inode)->runtime_flags);
++
+ 	return ret;
+ }
+ 
+diff --git a/fs/btrfs/space-info.c b/fs/btrfs/space-info.c
+index 64099565ab8f5..67e55c5479b8e 100644
+--- a/fs/btrfs/space-info.c
++++ b/fs/btrfs/space-info.c
+@@ -532,7 +532,7 @@ static void shrink_delalloc(struct btrfs_fs_info *fs_info,
+ 
+ 	loops = 0;
+ 	while ((delalloc_bytes || dio_bytes) && loops < 3) {
+-		btrfs_start_delalloc_roots(fs_info, items);
++		btrfs_start_delalloc_roots(fs_info, items, true);
+ 
+ 		loops++;
+ 		if (wait_ordered && !trans) {
+-- 
+2.27.0
+
+From 5301408ee15e0cd9454c3f57356c055c98158a0e Mon Sep 17 00:00:00 2001
+From: Sasha Levin <sashal@kernel.org>
+Date: Thu, 7 Jan 2021 17:08:30 -0500
+Subject: btrfs: shrink delalloc pages instead of full inodes
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+From: Josef Bacik <josef@toxicpanda.com>
+
+[ Upstream commit e076ab2a2ca70a0270232067cd49f76cd92efe64 ]
+
+Commit 38d715f494f2 ("btrfs: use btrfs_start_delalloc_roots in
+shrink_delalloc") cleaned up how we do delalloc shrinking by utilizing
+some infrastructure we have in place to flush inodes that we use for
+device replace and snapshot.  However this introduced a pretty serious
+performance regression.  To reproduce the user untarred the source
+tarball of Firefox (360MiB xz compressed/1.5GiB uncompressed), and would
+see it take anywhere from 5 to 20 times as long to untar in 5.10
+compared to 5.9. This was observed on fast devices (SSD and better) and
+not on HDD.
+
+The root cause is because before we would generally use the normal
+writeback path to reclaim delalloc space, and for this we would provide
+it with the number of pages we wanted to flush.  The referenced commit
+changed this to flush that many inodes, which drastically increased the
+amount of space we were flushing in certain cases, which severely
+affected performance.
+
+We cannot revert this patch unfortunately because of 3d45f221ce62
+("btrfs: fix deadlock when cloning inline extent and low on free
+metadata space") which requires the ability to skip flushing inodes that
+are being cloned in certain scenarios, which means we need to keep using
+our flushing infrastructure or risk re-introducing the deadlock.
+
+Instead to fix this problem we can go back to providing
+btrfs_start_delalloc_roots with a number of pages to flush, and then set
+up a writeback_control and utilize sync_inode() to handle the flushing
+for us.  This gives us the same behavior we had prior to the fix, while
+still allowing us to avoid the deadlock that was fixed by Filipe.  I
+redid the users original test and got the following results on one of
+our test machines (256GiB of ram, 56 cores, 2TiB Intel NVMe drive)
+
+  5.9		0m54.258s
+  5.10		1m26.212s
+  5.10+patch	0m38.800s
+
+5.10+patch is significantly faster than plain 5.9 because of my patch
+series "Change data reservations to use the ticketing infra" which
+contained the patch that introduced the regression, but generally
+improved the overall ENOSPC flushing mechanisms.
+
+Additional testing on consumer-grade SSD (8GiB ram, 8 CPU) confirm
+the results:
+
+  5.10.5            4m00s
+  5.10.5+patch      1m08s
+  5.11-rc2	    5m14s
+  5.11-rc2+patch    1m30s
+
+Reported-by: René Rebe <rene@exactcode.de>
+Fixes: 38d715f494f2 ("btrfs: use btrfs_start_delalloc_roots in shrink_delalloc")
+CC: stable@vger.kernel.org # 5.10
+Signed-off-by: Josef Bacik <josef@toxicpanda.com>
+Tested-by: David Sterba <dsterba@suse.com>
+Reviewed-by: David Sterba <dsterba@suse.com>
+[ add my test results ]
+Signed-off-by: David Sterba <dsterba@suse.com>
+Signed-off-by: Sasha Levin <sashal@kernel.org>
+---
+ fs/btrfs/inode.c      | 60 +++++++++++++++++++++++++++++++------------
+ fs/btrfs/space-info.c |  4 ++-
+ 2 files changed, 46 insertions(+), 18 deletions(-)
+
+diff --git a/fs/btrfs/inode.c b/fs/btrfs/inode.c
+index 07479250221da..acc47e2ffb46b 100644
+--- a/fs/btrfs/inode.c
++++ b/fs/btrfs/inode.c
+@@ -9389,7 +9389,8 @@ static struct btrfs_delalloc_work *btrfs_alloc_delalloc_work(struct inode *inode
+  * some fairly slow code that needs optimization. This walks the list
+  * of all the inodes with pending delalloc and forces them to disk.
+  */
+-static int start_delalloc_inodes(struct btrfs_root *root, u64 *nr, bool snapshot,
++static int start_delalloc_inodes(struct btrfs_root *root,
++				 struct writeback_control *wbc, bool snapshot,
+ 				 bool in_reclaim_context)
+ {
+ 	struct btrfs_inode *binode;
+@@ -9398,6 +9399,7 @@ static int start_delalloc_inodes(struct btrfs_root *root, u64 *nr, bool snapshot
+ 	struct list_head works;
+ 	struct list_head splice;
+ 	int ret = 0;
++	bool full_flush = wbc->nr_to_write == LONG_MAX;
+ 
+ 	INIT_LIST_HEAD(&works);
+ 	INIT_LIST_HEAD(&splice);
+@@ -9426,18 +9428,24 @@ static int start_delalloc_inodes(struct btrfs_root *root, u64 *nr, bool snapshot
+ 		if (snapshot)
+ 			set_bit(BTRFS_INODE_SNAPSHOT_FLUSH,
+ 				&binode->runtime_flags);
+-		work = btrfs_alloc_delalloc_work(inode);
+-		if (!work) {
+-			iput(inode);
+-			ret = -ENOMEM;
+-			goto out;
+-		}
+-		list_add_tail(&work->list, &works);
+-		btrfs_queue_work(root->fs_info->flush_workers,
+-				 &work->work);
+-		if (*nr != U64_MAX) {
+-			(*nr)--;
+-			if (*nr == 0)
++		if (full_flush) {
++			work = btrfs_alloc_delalloc_work(inode);
++			if (!work) {
++				iput(inode);
++				ret = -ENOMEM;
++				goto out;
++			}
++			list_add_tail(&work->list, &works);
++			btrfs_queue_work(root->fs_info->flush_workers,
++					 &work->work);
++		} else {
++			ret = sync_inode(inode, wbc);
++			if (!ret &&
++			    test_bit(BTRFS_INODE_HAS_ASYNC_EXTENT,
++				     &BTRFS_I(inode)->runtime_flags))
++				ret = sync_inode(inode, wbc);
++			btrfs_add_delayed_iput(inode);
++			if (ret || wbc->nr_to_write <= 0)
+ 				goto out;
+ 		}
+ 		cond_resched();
+@@ -9463,18 +9471,29 @@ static int start_delalloc_inodes(struct btrfs_root *root, u64 *nr, bool snapshot
+ 
+ int btrfs_start_delalloc_snapshot(struct btrfs_root *root)
+ {
++	struct writeback_control wbc = {
++		.nr_to_write = LONG_MAX,
++		.sync_mode = WB_SYNC_NONE,
++		.range_start = 0,
++		.range_end = LLONG_MAX,
++	};
+ 	struct btrfs_fs_info *fs_info = root->fs_info;
+-	u64 nr = U64_MAX;
+ 
+ 	if (test_bit(BTRFS_FS_STATE_ERROR, &fs_info->fs_state))
+ 		return -EROFS;
+ 
+-	return start_delalloc_inodes(root, &nr, true, false);
++	return start_delalloc_inodes(root, &wbc, true, false);
+ }
+ 
+ int btrfs_start_delalloc_roots(struct btrfs_fs_info *fs_info, u64 nr,
+ 			       bool in_reclaim_context)
+ {
++	struct writeback_control wbc = {
++		.nr_to_write = (nr == U64_MAX) ? LONG_MAX : (unsigned long)nr,
++		.sync_mode = WB_SYNC_NONE,
++		.range_start = 0,
++		.range_end = LLONG_MAX,
++	};
+ 	struct btrfs_root *root;
+ 	struct list_head splice;
+ 	int ret;
+@@ -9488,6 +9507,13 @@ int btrfs_start_delalloc_roots(struct btrfs_fs_info *fs_info, u64 nr,
+ 	spin_lock(&fs_info->delalloc_root_lock);
+ 	list_splice_init(&fs_info->delalloc_roots, &splice);
+ 	while (!list_empty(&splice) && nr) {
++		/*
++		 * Reset nr_to_write here so we know that we're doing a full
++		 * flush.
++		 */
++		if (nr == U64_MAX)
++			wbc.nr_to_write = LONG_MAX;
++
+ 		root = list_first_entry(&splice, struct btrfs_root,
+ 					delalloc_root);
+ 		root = btrfs_grab_root(root);
+@@ -9496,9 +9522,9 @@ int btrfs_start_delalloc_roots(struct btrfs_fs_info *fs_info, u64 nr,
+ 			       &fs_info->delalloc_roots);
+ 		spin_unlock(&fs_info->delalloc_root_lock);
+ 
+-		ret = start_delalloc_inodes(root, &nr, false, in_reclaim_context);
++		ret = start_delalloc_inodes(root, &wbc, false, in_reclaim_context);
+ 		btrfs_put_root(root);
+-		if (ret < 0)
++		if (ret < 0 || wbc.nr_to_write <= 0)
+ 			goto out;
+ 		spin_lock(&fs_info->delalloc_root_lock);
+ 	}
+diff --git a/fs/btrfs/space-info.c b/fs/btrfs/space-info.c
+index 67e55c5479b8e..e8347461c8ddd 100644
+--- a/fs/btrfs/space-info.c
++++ b/fs/btrfs/space-info.c
+@@ -532,7 +532,9 @@ static void shrink_delalloc(struct btrfs_fs_info *fs_info,
+ 
+ 	loops = 0;
+ 	while ((delalloc_bytes || dio_bytes) && loops < 3) {
+-		btrfs_start_delalloc_roots(fs_info, items, true);
++		u64 nr_pages = min(delalloc_bytes, to_reclaim) >> PAGE_SHIFT;
++
++		btrfs_start_delalloc_roots(fs_info, nr_pages, true);
+ 
+ 		loops++;
+ 		if (wait_ordered && !trans) {
+-- 
+2.27.0
+
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: "Jouni K. Sepp�nen" <jks@iki.fi>
+Date: Tue, 5 Jan 2021 06:52:49 +0200
+Subject: net: cdc_ncm: correct overhead in delayed_ndp_size
+
+From: "Jouni K. Sepp�nen" <jks@iki.fi>
+
+[ Upstream commit 7a68d725e4ea384977445e0bcaed3d7de83ab5b3 ]
+
+Aligning to tx_ndp_modulus is not sufficient because the next align
+call can be cdc_ncm_align_tail, which can add up to ctx->tx_modulus +
+ctx->tx_remainder - 1 bytes. This used to lead to occasional crashes
+on a Huawei 909s-120 LTE module as follows:
+
+- the condition marked /* if there is a remaining skb [...] */ is true
+  so the swaps happen
+- skb_out is set from ctx->tx_curr_skb
+- skb_out->len is exactly 0x3f52
+- ctx->tx_curr_size is 0x4000 and delayed_ndp_size is 0xac
+  (note that the sum of skb_out->len and delayed_ndp_size is 0x3ffe)
+- the for loop over n is executed once
+- the cdc_ncm_align_tail call marked /* align beginning of next frame */
+  increases skb_out->len to 0x3f56 (the sum is now 0x4002)
+- the condition marked /* check if we had enough room left [...] */ is
+  false so we break out of the loop
+- the condition marked /* If requested, put NDP at end of frame. */ is
+  true so the NDP is written into skb_out
+- now skb_out->len is 0x4002, so padding_count is minus two interpreted
+  as an unsigned number, which is used as the length argument to memset,
+  leading to a crash with various symptoms but usually including
+
+> Call Trace:
+>  <IRQ>
+>  cdc_ncm_fill_tx_frame+0x83a/0x970 [cdc_ncm]
+>  cdc_mbim_tx_fixup+0x1d9/0x240 [cdc_mbim]
+>  usbnet_start_xmit+0x5d/0x720 [usbnet]
+
+The cdc_ncm_align_tail call first aligns on a ctx->tx_modulus
+boundary (adding at most ctx->tx_modulus-1 bytes), then adds
+ctx->tx_remainder bytes. Alternatively, the next alignment call can
+occur in cdc_ncm_ndp16 or cdc_ncm_ndp32, in which case at most
+ctx->tx_ndp_modulus-1 bytes are added.
+
+A similar problem has occurred before, and the code is nontrivial to
+reason about, so add a guard before the crashing call. By that time it
+is too late to prevent any memory corruption (we'll have written past
+the end of the buffer already) but we can at least try to get a warning
+written into an on-disk log by avoiding the hard crash caused by padding
+past the buffer with a huge number of zeros.
+
+Signed-off-by: Jouni K. Seppänen <jks@iki.fi>
+Fixes: 4a0e3e989d66 ("cdc_ncm: Add support for moving NDP to end of NCM frame")
+Link: https://bugzilla.kernel.org/show_bug.cgi?id=209407
+Reported-by: kernel test robot <lkp@intel.com>
+Reviewed-by: Bjørn Mork <bjorn@mork.no>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/usb/cdc_ncm.c |    8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+--- a/drivers/net/usb/cdc_ncm.c
++++ b/drivers/net/usb/cdc_ncm.c
+@@ -1199,7 +1199,10 @@ cdc_ncm_fill_tx_frame(struct usbnet *dev
+ 	 * accordingly. Otherwise, we should check here.
+ 	 */
+ 	if (ctx->drvflags & CDC_NCM_FLAG_NDP_TO_END)
+-		delayed_ndp_size = ALIGN(ctx->max_ndp_size, ctx->tx_ndp_modulus);
++		delayed_ndp_size = ctx->max_ndp_size +
++			max_t(u32,
++			      ctx->tx_ndp_modulus,
++			      ctx->tx_modulus + ctx->tx_remainder) - 1;
+ 	else
+ 		delayed_ndp_size = 0;
+ 
+@@ -1410,7 +1413,8 @@ cdc_ncm_fill_tx_frame(struct usbnet *dev
+ 	if (!(dev->driver_info->flags & FLAG_SEND_ZLP) &&
+ 	    skb_out->len > ctx->min_tx_pkt) {
+ 		padding_count = ctx->tx_curr_size - skb_out->len;
+-		skb_put_zero(skb_out, padding_count);
++		if (!WARN_ON(padding_count > ctx->tx_curr_size))
++			skb_put_zero(skb_out, padding_count);
+ 	} else if (skb_out->len < ctx->tx_curr_size &&
+ 		   (skb_out->len % dev->maxpacket) == 0) {
+ 		skb_put_u8(skb_out, 0);	/* force short packet */
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Jian Shen <shenjian15@huawei.com>
+Date: Tue, 5 Jan 2021 11:37:28 +0800
+Subject: net: hns3: fix incorrect handling of sctp6 rss tuple
+
+From: Jian Shen <shenjian15@huawei.com>
+
+[ Upstream commit ab6e32d2913a594bc8f822ce4a75c400190b2ecc ]
+
+For DEVICE_VERSION_V2, the hardware only supports src-ip,
+dst-ip and verification-tag for rss tuple set of sctp6
+packet. For DEVICE_VERSION_V3, the hardware supports
+src-port and dst-port as well.
+
+Currently, when user queries the sctp6 rss tuples info,
+some unsupported information will be showed on V2. So add
+a check for hardware version when initializing and queries
+sctp6 rss tuple to fix this issue.
+
+Fixes: 46a3df9f9718 ("net: hns3: Add HNS3 Acceleration Engine & Compatibility Layer Support")
+Signed-off-by: Jian Shen <shenjian15@huawei.com>
+Signed-off-by: Huazhong Tan <tanhuazhong@huawei.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/hisilicon/hns3/hns3pf/hclge_main.c   |    6 ++++--
+ drivers/net/ethernet/hisilicon/hns3/hns3pf/hclge_main.h   |    2 ++
+ drivers/net/ethernet/hisilicon/hns3/hns3vf/hclgevf_main.c |    9 ++++++---
+ drivers/net/ethernet/hisilicon/hns3/hns3vf/hclgevf_main.h |    2 ++
+ 4 files changed, 14 insertions(+), 5 deletions(-)
+
+--- a/drivers/net/ethernet/hisilicon/hns3/hns3pf/hclge_main.c
++++ b/drivers/net/ethernet/hisilicon/hns3/hns3pf/hclge_main.c
+@@ -4484,8 +4484,8 @@ static int hclge_set_rss_tuple(struct hn
+ 		req->ipv4_sctp_en = tuple_sets;
+ 		break;
+ 	case SCTP_V6_FLOW:
+-		if ((nfc->data & RXH_L4_B_0_1) ||
+-		    (nfc->data & RXH_L4_B_2_3))
++		if (hdev->ae_dev->dev_version <= HNAE3_DEVICE_VERSION_V2 &&
++		    (nfc->data & (RXH_L4_B_0_1 | RXH_L4_B_2_3)))
+ 			return -EINVAL;
+ 
+ 		req->ipv6_sctp_en = tuple_sets;
+@@ -4665,6 +4665,8 @@ static void hclge_rss_init_cfg(struct hc
+ 		vport[i].rss_tuple_sets.ipv6_udp_en =
+ 			HCLGE_RSS_INPUT_TUPLE_OTHER;
+ 		vport[i].rss_tuple_sets.ipv6_sctp_en =
++			hdev->ae_dev->dev_version <= HNAE3_DEVICE_VERSION_V2 ?
++			HCLGE_RSS_INPUT_TUPLE_SCTP_NO_PORT :
+ 			HCLGE_RSS_INPUT_TUPLE_SCTP;
+ 		vport[i].rss_tuple_sets.ipv6_fragment_en =
+ 			HCLGE_RSS_INPUT_TUPLE_OTHER;
+--- a/drivers/net/ethernet/hisilicon/hns3/hns3pf/hclge_main.h
++++ b/drivers/net/ethernet/hisilicon/hns3/hns3pf/hclge_main.h
+@@ -105,6 +105,8 @@
+ #define HCLGE_D_IP_BIT			BIT(2)
+ #define HCLGE_S_IP_BIT			BIT(3)
+ #define HCLGE_V_TAG_BIT			BIT(4)
++#define HCLGE_RSS_INPUT_TUPLE_SCTP_NO_PORT	\
++		(HCLGE_D_IP_BIT | HCLGE_S_IP_BIT | HCLGE_V_TAG_BIT)
+ 
+ #define HCLGE_RSS_TC_SIZE_0		1
+ #define HCLGE_RSS_TC_SIZE_1		2
+--- a/drivers/net/ethernet/hisilicon/hns3/hns3vf/hclgevf_main.c
++++ b/drivers/net/ethernet/hisilicon/hns3/hns3vf/hclgevf_main.c
+@@ -901,8 +901,8 @@ static int hclgevf_set_rss_tuple(struct
+ 		req->ipv4_sctp_en = tuple_sets;
+ 		break;
+ 	case SCTP_V6_FLOW:
+-		if ((nfc->data & RXH_L4_B_0_1) ||
+-		    (nfc->data & RXH_L4_B_2_3))
++		if (hdev->ae_dev->dev_version <= HNAE3_DEVICE_VERSION_V2 &&
++		    (nfc->data & (RXH_L4_B_0_1 | RXH_L4_B_2_3)))
+ 			return -EINVAL;
+ 
+ 		req->ipv6_sctp_en = tuple_sets;
+@@ -2481,7 +2481,10 @@ static void hclgevf_rss_init_cfg(struct
+ 		tuple_sets->ipv4_fragment_en = HCLGEVF_RSS_INPUT_TUPLE_OTHER;
+ 		tuple_sets->ipv6_tcp_en = HCLGEVF_RSS_INPUT_TUPLE_OTHER;
+ 		tuple_sets->ipv6_udp_en = HCLGEVF_RSS_INPUT_TUPLE_OTHER;
+-		tuple_sets->ipv6_sctp_en = HCLGEVF_RSS_INPUT_TUPLE_SCTP;
++		tuple_sets->ipv6_sctp_en =
++			hdev->ae_dev->dev_version <= HNAE3_DEVICE_VERSION_V2 ?
++					HCLGEVF_RSS_INPUT_TUPLE_SCTP_NO_PORT :
++					HCLGEVF_RSS_INPUT_TUPLE_SCTP;
+ 		tuple_sets->ipv6_fragment_en = HCLGEVF_RSS_INPUT_TUPLE_OTHER;
+ 	}
+ 
+--- a/drivers/net/ethernet/hisilicon/hns3/hns3vf/hclgevf_main.h
++++ b/drivers/net/ethernet/hisilicon/hns3/hns3vf/hclgevf_main.h
+@@ -122,6 +122,8 @@
+ #define HCLGEVF_D_IP_BIT		BIT(2)
+ #define HCLGEVF_S_IP_BIT		BIT(3)
+ #define HCLGEVF_V_TAG_BIT		BIT(4)
++#define HCLGEVF_RSS_INPUT_TUPLE_SCTP_NO_PORT	\
++	(HCLGEVF_D_IP_BIT | HCLGEVF_S_IP_BIT | HCLGEVF_V_TAG_BIT)
+ 
+ #define HCLGEVF_STATS_TIMER_INTERVAL	36U
+ 
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Yufeng Mo <moyufeng@huawei.com>
+Date: Tue, 5 Jan 2021 11:37:27 +0800
+Subject: net: hns3: fix the number of queues actually used by ARQ
+
+From: Yufeng Mo <moyufeng@huawei.com>
+
+[ Upstream commit 65e61e3c2a619c4d4b873885b2d5394025ed117b ]
+
+HCLGE_MBX_MAX_ARQ_MSG_NUM is used to apply memory for the number
+of queues used by ARQ(Asynchronous Receive Queue), so the head
+and tail pointers should also use this macro.
+
+Fixes: 07a0556a3a73 ("net: hns3: Changes to support ARQ(Asynchronous Receive Queue)")
+Signed-off-by: Yufeng Mo <moyufeng@huawei.com>
+Signed-off-by: Huazhong Tan <tanhuazhong@huawei.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/hisilicon/hns3/hclge_mbx.h |    4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+--- a/drivers/net/ethernet/hisilicon/hns3/hclge_mbx.h
++++ b/drivers/net/ethernet/hisilicon/hns3/hclge_mbx.h
+@@ -168,7 +168,7 @@ struct hclgevf_mbx_arq_ring {
+ #define hclge_mbx_ring_ptr_move_crq(crq) \
+ 	(crq->next_to_use = (crq->next_to_use + 1) % crq->desc_num)
+ #define hclge_mbx_tail_ptr_move_arq(arq) \
+-	(arq.tail = (arq.tail + 1) % HCLGE_MBX_MAX_ARQ_MSG_SIZE)
++		(arq.tail = (arq.tail + 1) % HCLGE_MBX_MAX_ARQ_MSG_NUM)
+ #define hclge_mbx_head_ptr_move_arq(arq) \
+-		(arq.head = (arq.head + 1) % HCLGE_MBX_MAX_ARQ_MSG_SIZE)
++		(arq.head = (arq.head + 1) % HCLGE_MBX_MAX_ARQ_MSG_NUM)
+ #endif
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Yonglong Liu <liuyonglong@huawei.com>
+Date: Tue, 5 Jan 2021 11:37:26 +0800
+Subject: net: hns3: fix a phy loopback fail issue
+
+From: Yonglong Liu <liuyonglong@huawei.com>
+
+[ Upstream commit f04bbcbf1e38d192e94bbfa126731a52332c40b1 ]
+
+When phy driver does not implement the set_loopback interface,
+phy loopback test will return -EOPNOTSUPP, and the loopback test
+will fail. So when phy driver does not implement the set_loopback
+interface, don't do phy loopback test.
+
+Fixes: c9765a89d142 ("net: hns3: add phy selftest function")
+Signed-off-by: Yonglong Liu <liuyonglong@huawei.com>
+Signed-off-by: Huazhong Tan <tanhuazhong@huawei.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/hisilicon/hns3/hns3pf/hclge_main.c |    3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+--- a/drivers/net/ethernet/hisilicon/hns3/hns3pf/hclge_main.c
++++ b/drivers/net/ethernet/hisilicon/hns3/hns3pf/hclge_main.c
+@@ -752,7 +752,8 @@ static int hclge_get_sset_count(struct h
+ 		handle->flags |= HNAE3_SUPPORT_SERDES_SERIAL_LOOPBACK;
+ 		handle->flags |= HNAE3_SUPPORT_SERDES_PARALLEL_LOOPBACK;
+ 
+-		if (hdev->hw.mac.phydev) {
++		if (hdev->hw.mac.phydev && hdev->hw.mac.phydev->drv &&
++		    hdev->hw.mac.phydev->drv->set_loopback) {
+ 			count += 1;
+ 			handle->flags |= HNAE3_SUPPORT_PHY_LOOPBACK;
+ 		}
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Samuel Holland <samuel@sholland.org>
+Date: Sun, 3 Jan 2021 05:17:41 -0600
+Subject: net: stmmac: dwmac-sun8i: Fix probe error handling
+
+From: Samuel Holland <samuel@sholland.org>
+
+[ Upstream commit 7eeecc4b1f480c7ba1932cb9a7693f8c452640f2 ]
+
+stmmac_pltfr_remove does three things in one function, making it
+inapproprate for unwinding the steps in the probe function. Currently,
+a failure before the call to stmmac_dvr_probe would leak OF node
+references due to missing a call to stmmac_remove_config_dt. And an
+error in stmmac_dvr_probe would cause the driver to attempt to remove a
+netdevice that was never added. Fix these by reordering the init and
+splitting out the error handling steps.
+
+Fixes: 9f93ac8d4085 ("net-next: stmmac: Add dwmac-sun8i")
+Fixes: 40a1dcee2d18 ("net: ethernet: dwmac-sun8i: Use the correct function in exit path")
+Signed-off-by: Samuel Holland <samuel@sholland.org>
+Reviewed-by: Chen-Yu Tsai <wens@csie.org>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/stmicro/stmmac/dwmac-sun8i.c |   25 +++++++++++++---------
+ 1 file changed, 15 insertions(+), 10 deletions(-)
+
+--- a/drivers/net/ethernet/stmicro/stmmac/dwmac-sun8i.c
++++ b/drivers/net/ethernet/stmicro/stmmac/dwmac-sun8i.c
+@@ -1134,10 +1134,6 @@ static int sun8i_dwmac_probe(struct plat
+ 	if (ret)
+ 		return ret;
+ 
+-	plat_dat = stmmac_probe_config_dt(pdev, &stmmac_res.mac);
+-	if (IS_ERR(plat_dat))
+-		return PTR_ERR(plat_dat);
+-
+ 	gmac = devm_kzalloc(dev, sizeof(*gmac), GFP_KERNEL);
+ 	if (!gmac)
+ 		return -ENOMEM;
+@@ -1201,11 +1197,15 @@ static int sun8i_dwmac_probe(struct plat
+ 	ret = of_get_phy_mode(dev->of_node, &interface);
+ 	if (ret)
+ 		return -EINVAL;
+-	plat_dat->interface = interface;
++
++	plat_dat = stmmac_probe_config_dt(pdev, &stmmac_res.mac);
++	if (IS_ERR(plat_dat))
++		return PTR_ERR(plat_dat);
+ 
+ 	/* platform data specifying hardware features and callbacks.
+ 	 * hardware features were copied from Allwinner drivers.
+ 	 */
++	plat_dat->interface = interface;
+ 	plat_dat->rx_coe = STMMAC_RX_COE_TYPE2;
+ 	plat_dat->tx_coe = 1;
+ 	plat_dat->has_sun8i = true;
+@@ -1216,7 +1216,7 @@ static int sun8i_dwmac_probe(struct plat
+ 
+ 	ret = sun8i_dwmac_init(pdev, plat_dat->bsp_priv);
+ 	if (ret)
+-		return ret;
++		goto dwmac_deconfig;
+ 
+ 	ret = stmmac_dvr_probe(&pdev->dev, plat_dat, &stmmac_res);
+ 	if (ret)
+@@ -1230,7 +1230,7 @@ static int sun8i_dwmac_probe(struct plat
+ 	if (gmac->variant->soc_has_internal_phy) {
+ 		ret = get_ephy_nodes(priv);
+ 		if (ret)
+-			goto dwmac_exit;
++			goto dwmac_remove;
+ 		ret = sun8i_dwmac_register_mdio_mux(priv);
+ 		if (ret) {
+ 			dev_err(&pdev->dev, "Failed to register mux\n");
+@@ -1239,15 +1239,20 @@ static int sun8i_dwmac_probe(struct plat
+ 	} else {
+ 		ret = sun8i_dwmac_reset(priv);
+ 		if (ret)
+-			goto dwmac_exit;
++			goto dwmac_remove;
+ 	}
+ 
+ 	return ret;
+ dwmac_mux:
+ 	sun8i_dwmac_unset_syscon(gmac);
++dwmac_remove:
++	stmmac_dvr_remove(&pdev->dev);
+ dwmac_exit:
+-	stmmac_pltfr_remove(pdev);
+-return ret;
++	sun8i_dwmac_exit(pdev, gmac);
++dwmac_deconfig:
++	stmmac_remove_config_dt(pdev, plat_dat);
++
++	return ret;
+ }
+ 
+ static const struct of_device_id sun8i_dwmac_match[] = {
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Samuel Holland <samuel@sholland.org>
+Date: Sun, 3 Jan 2021 05:17:42 -0600
+Subject: net: stmmac: dwmac-sun8i: Balance internal PHY resource references
+
+From: Samuel Holland <samuel@sholland.org>
+
+[ Upstream commit 529254216773acd5039c07aa18cf06fd1f9fccdd ]
+
+While stmmac_pltfr_remove calls sun8i_dwmac_exit, the sun8i_dwmac_init
+and sun8i_dwmac_exit functions are also called by the stmmac_platform
+suspend/resume callbacks. They may be called many times during the
+device's lifetime and should not release resources used by the driver.
+
+Furthermore, there was no error handling in case registering the MDIO
+mux failed during probe, and the EPHY clock was never released at all.
+
+Fix all of these issues by moving the deinitialization code to a driver
+removal callback. Also ensure the EPHY is powered down before removal.
+
+Fixes: 634db83b8265 ("net: stmmac: dwmac-sun8i: Handle integrated/external MDIOs")
+Signed-off-by: Samuel Holland <samuel@sholland.org>
+Reviewed-by: Chen-Yu Tsai <wens@csie.org>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/stmicro/stmmac/dwmac-sun8i.c |   27 +++++++++++++++++-----
+ 1 file changed, 21 insertions(+), 6 deletions(-)
+
+--- a/drivers/net/ethernet/stmicro/stmmac/dwmac-sun8i.c
++++ b/drivers/net/ethernet/stmicro/stmmac/dwmac-sun8i.c
+@@ -1004,17 +1004,12 @@ static void sun8i_dwmac_exit(struct plat
+ 	struct sunxi_priv_data *gmac = priv;
+ 
+ 	if (gmac->variant->soc_has_internal_phy) {
+-		/* sun8i_dwmac_exit could be called with mdiomux uninit */
+-		if (gmac->mux_handle)
+-			mdio_mux_uninit(gmac->mux_handle);
+ 		if (gmac->internal_phy_powered)
+ 			sun8i_dwmac_unpower_internal_phy(gmac);
+ 	}
+ 
+ 	sun8i_dwmac_unset_syscon(gmac);
+ 
+-	reset_control_put(gmac->rst_ephy);
+-
+ 	clk_disable_unprepare(gmac->tx_clk);
+ 
+ 	if (gmac->regulator)
+@@ -1244,6 +1239,8 @@ static int sun8i_dwmac_probe(struct plat
+ 
+ 	return ret;
+ dwmac_mux:
++	reset_control_put(gmac->rst_ephy);
++	clk_put(gmac->ephy_clk);
+ 	sun8i_dwmac_unset_syscon(gmac);
+ dwmac_remove:
+ 	stmmac_dvr_remove(&pdev->dev);
+@@ -1255,6 +1252,24 @@ dwmac_deconfig:
+ 	return ret;
+ }
+ 
++static int sun8i_dwmac_remove(struct platform_device *pdev)
++{
++	struct net_device *ndev = platform_get_drvdata(pdev);
++	struct stmmac_priv *priv = netdev_priv(ndev);
++	struct sunxi_priv_data *gmac = priv->plat->bsp_priv;
++
++	if (gmac->variant->soc_has_internal_phy) {
++		mdio_mux_uninit(gmac->mux_handle);
++		sun8i_dwmac_unpower_internal_phy(gmac);
++		reset_control_put(gmac->rst_ephy);
++		clk_put(gmac->ephy_clk);
++	}
++
++	stmmac_pltfr_remove(pdev);
++
++	return 0;
++}
++
+ static const struct of_device_id sun8i_dwmac_match[] = {
+ 	{ .compatible = "allwinner,sun8i-h3-emac",
+ 		.data = &emac_variant_h3 },
+@@ -1274,7 +1289,7 @@ MODULE_DEVICE_TABLE(of, sun8i_dwmac_matc
+ 
+ static struct platform_driver sun8i_dwmac_driver = {
+ 	.probe  = sun8i_dwmac_probe,
+-	.remove = stmmac_pltfr_remove,
++	.remove = sun8i_dwmac_remove,
+ 	.driver = {
+ 		.name           = "dwmac-sun8i",
+ 		.pm		= &stmmac_pltfr_pm_ops,
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Samuel Holland <samuel@sholland.org>
+Date: Sun, 3 Jan 2021 05:17:43 -0600
+Subject: net: stmmac: dwmac-sun8i: Balance internal PHY power
+
+From: Samuel Holland <samuel@sholland.org>
+
+[ Upstream commit b8239638853e3e37b287e4bd4d57b41f14c78550 ]
+
+sun8i_dwmac_exit calls sun8i_dwmac_unpower_internal_phy, but
+sun8i_dwmac_init did not call sun8i_dwmac_power_internal_phy. This
+caused PHY power to remain off after a suspend/resume cycle. Fix this by
+recording if PHY power should be restored, and if so, restoring it.
+
+Fixes: 634db83b8265 ("net: stmmac: dwmac-sun8i: Handle integrated/external MDIOs")
+Signed-off-by: Samuel Holland <samuel@sholland.org>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/stmicro/stmmac/dwmac-sun8i.c |   31 ++++++++++++++++------
+ 1 file changed, 23 insertions(+), 8 deletions(-)
+
+--- a/drivers/net/ethernet/stmicro/stmmac/dwmac-sun8i.c
++++ b/drivers/net/ethernet/stmicro/stmmac/dwmac-sun8i.c
+@@ -64,6 +64,7 @@ struct emac_variant {
+  * @variant:	reference to the current board variant
+  * @regmap:	regmap for using the syscon
+  * @internal_phy_powered: Does the internal PHY is enabled
++ * @use_internal_phy: Is the internal PHY selected for use
+  * @mux_handle:	Internal pointer used by mdio-mux lib
+  */
+ struct sunxi_priv_data {
+@@ -74,6 +75,7 @@ struct sunxi_priv_data {
+ 	const struct emac_variant *variant;
+ 	struct regmap_field *regmap_field;
+ 	bool internal_phy_powered;
++	bool use_internal_phy;
+ 	void *mux_handle;
+ };
+ 
+@@ -539,8 +541,11 @@ static const struct stmmac_dma_ops sun8i
+ 	.dma_interrupt = sun8i_dwmac_dma_interrupt,
+ };
+ 
++static int sun8i_dwmac_power_internal_phy(struct stmmac_priv *priv);
++
+ static int sun8i_dwmac_init(struct platform_device *pdev, void *priv)
+ {
++	struct net_device *ndev = platform_get_drvdata(pdev);
+ 	struct sunxi_priv_data *gmac = priv;
+ 	int ret;
+ 
+@@ -554,13 +559,25 @@ static int sun8i_dwmac_init(struct platf
+ 
+ 	ret = clk_prepare_enable(gmac->tx_clk);
+ 	if (ret) {
+-		if (gmac->regulator)
+-			regulator_disable(gmac->regulator);
+ 		dev_err(&pdev->dev, "Could not enable AHB clock\n");
+-		return ret;
++		goto err_disable_regulator;
++	}
++
++	if (gmac->use_internal_phy) {
++		ret = sun8i_dwmac_power_internal_phy(netdev_priv(ndev));
++		if (ret)
++			goto err_disable_clk;
+ 	}
+ 
+ 	return 0;
++
++err_disable_clk:
++	clk_disable_unprepare(gmac->tx_clk);
++err_disable_regulator:
++	if (gmac->regulator)
++		regulator_disable(gmac->regulator);
++
++	return ret;
+ }
+ 
+ static void sun8i_dwmac_core_init(struct mac_device_info *hw,
+@@ -831,7 +848,6 @@ static int mdio_mux_syscon_switch_fn(int
+ 	struct sunxi_priv_data *gmac = priv->plat->bsp_priv;
+ 	u32 reg, val;
+ 	int ret = 0;
+-	bool need_power_ephy = false;
+ 
+ 	if (current_child ^ desired_child) {
+ 		regmap_field_read(gmac->regmap_field, &reg);
+@@ -839,13 +855,12 @@ static int mdio_mux_syscon_switch_fn(int
+ 		case DWMAC_SUN8I_MDIO_MUX_INTERNAL_ID:
+ 			dev_info(priv->device, "Switch mux to internal PHY");
+ 			val = (reg & ~H3_EPHY_MUX_MASK) | H3_EPHY_SELECT;
+-
+-			need_power_ephy = true;
++			gmac->use_internal_phy = true;
+ 			break;
+ 		case DWMAC_SUN8I_MDIO_MUX_EXTERNAL_ID:
+ 			dev_info(priv->device, "Switch mux to external PHY");
+ 			val = (reg & ~H3_EPHY_MUX_MASK) | H3_EPHY_SHUTDOWN;
+-			need_power_ephy = false;
++			gmac->use_internal_phy = false;
+ 			break;
+ 		default:
+ 			dev_err(priv->device, "Invalid child ID %x\n",
+@@ -853,7 +868,7 @@ static int mdio_mux_syscon_switch_fn(int
+ 			return -EINVAL;
+ 		}
+ 		regmap_field_write(gmac->regmap_field, val);
+-		if (need_power_ephy) {
++		if (gmac->use_internal_phy) {
+ 			ret = sun8i_dwmac_power_internal_phy(priv);
+ 			if (ret)
+ 				return ret;
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Samuel Holland <samuel@sholland.org>
+Date: Sun, 3 Jan 2021 05:17:44 -0600
+Subject: net: stmmac: dwmac-sun8i: Balance syscon (de)initialization
+
+From: Samuel Holland <samuel@sholland.org>
+
+[ Upstream commit 9b1e39cf5dd81f33186cdb950fcf75a121f1a9a7 ]
+
+Previously, sun8i_dwmac_set_syscon was called from a chain of functions
+in several different files:
+    sun8i_dwmac_probe
+      stmmac_dvr_probe
+        stmmac_hw_init
+          stmmac_hwif_init
+            sun8i_dwmac_setup
+              sun8i_dwmac_set_syscon
+which made the lifetime of the syscon values hard to reason about. Part
+of the problem is that there is no similar platform driver callback from
+stmmac_dvr_remove. As a result, the driver unset the syscon value in
+sun8i_dwmac_exit, but this leaves it uninitialized after a suspend/
+resume cycle. It was also unset a second time (outside sun8i_dwmac_exit)
+in the probe error path.
+
+Move the init to the earliest available place in sun8i_dwmac_probe
+(after stmmac_probe_config_dt, which initializes plat_dat), and the
+deinit to the corresponding position in the cleanup order.
+
+Since priv is not filled in until stmmac_dvr_probe, this requires
+changing the sun8i_dwmac_set_syscon parameters to priv's two relevant
+members.
+
+Fixes: 9f93ac8d4085 ("net-next: stmmac: Add dwmac-sun8i")
+Fixes: 634db83b8265 ("net: stmmac: dwmac-sun8i: Handle integrated/external MDIOs")
+Signed-off-by: Samuel Holland <samuel@sholland.org>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/stmicro/stmmac/dwmac-sun8i.c |   50 +++++++++++-----------
+ 1 file changed, 25 insertions(+), 25 deletions(-)
+
+--- a/drivers/net/ethernet/stmicro/stmmac/dwmac-sun8i.c
++++ b/drivers/net/ethernet/stmicro/stmmac/dwmac-sun8i.c
+@@ -898,22 +898,23 @@ static int sun8i_dwmac_register_mdio_mux
+ 	return ret;
+ }
+ 
+-static int sun8i_dwmac_set_syscon(struct stmmac_priv *priv)
++static int sun8i_dwmac_set_syscon(struct device *dev,
++				  struct plat_stmmacenet_data *plat)
+ {
+-	struct sunxi_priv_data *gmac = priv->plat->bsp_priv;
+-	struct device_node *node = priv->device->of_node;
++	struct sunxi_priv_data *gmac = plat->bsp_priv;
++	struct device_node *node = dev->of_node;
+ 	int ret;
+ 	u32 reg, val;
+ 
+ 	ret = regmap_field_read(gmac->regmap_field, &val);
+ 	if (ret) {
+-		dev_err(priv->device, "Fail to read from regmap field.\n");
++		dev_err(dev, "Fail to read from regmap field.\n");
+ 		return ret;
+ 	}
+ 
+ 	reg = gmac->variant->default_syscon_value;
+ 	if (reg != val)
+-		dev_warn(priv->device,
++		dev_warn(dev,
+ 			 "Current syscon value is not the default %x (expect %x)\n",
+ 			 val, reg);
+ 
+@@ -926,9 +927,9 @@ static int sun8i_dwmac_set_syscon(struct
+ 		/* Force EPHY xtal frequency to 24MHz. */
+ 		reg |= H3_EPHY_CLK_SEL;
+ 
+-		ret = of_mdio_parse_addr(priv->device, priv->plat->phy_node);
++		ret = of_mdio_parse_addr(dev, plat->phy_node);
+ 		if (ret < 0) {
+-			dev_err(priv->device, "Could not parse MDIO addr\n");
++			dev_err(dev, "Could not parse MDIO addr\n");
+ 			return ret;
+ 		}
+ 		/* of_mdio_parse_addr returns a valid (0 ~ 31) PHY
+@@ -944,17 +945,17 @@ static int sun8i_dwmac_set_syscon(struct
+ 
+ 	if (!of_property_read_u32(node, "allwinner,tx-delay-ps", &val)) {
+ 		if (val % 100) {
+-			dev_err(priv->device, "tx-delay must be a multiple of 100\n");
++			dev_err(dev, "tx-delay must be a multiple of 100\n");
+ 			return -EINVAL;
+ 		}
+ 		val /= 100;
+-		dev_dbg(priv->device, "set tx-delay to %x\n", val);
++		dev_dbg(dev, "set tx-delay to %x\n", val);
+ 		if (val <= gmac->variant->tx_delay_max) {
+ 			reg &= ~(gmac->variant->tx_delay_max <<
+ 				 SYSCON_ETXDC_SHIFT);
+ 			reg |= (val << SYSCON_ETXDC_SHIFT);
+ 		} else {
+-			dev_err(priv->device, "Invalid TX clock delay: %d\n",
++			dev_err(dev, "Invalid TX clock delay: %d\n",
+ 				val);
+ 			return -EINVAL;
+ 		}
+@@ -962,17 +963,17 @@ static int sun8i_dwmac_set_syscon(struct
+ 
+ 	if (!of_property_read_u32(node, "allwinner,rx-delay-ps", &val)) {
+ 		if (val % 100) {
+-			dev_err(priv->device, "rx-delay must be a multiple of 100\n");
++			dev_err(dev, "rx-delay must be a multiple of 100\n");
+ 			return -EINVAL;
+ 		}
+ 		val /= 100;
+-		dev_dbg(priv->device, "set rx-delay to %x\n", val);
++		dev_dbg(dev, "set rx-delay to %x\n", val);
+ 		if (val <= gmac->variant->rx_delay_max) {
+ 			reg &= ~(gmac->variant->rx_delay_max <<
+ 				 SYSCON_ERXDC_SHIFT);
+ 			reg |= (val << SYSCON_ERXDC_SHIFT);
+ 		} else {
+-			dev_err(priv->device, "Invalid RX clock delay: %d\n",
++			dev_err(dev, "Invalid RX clock delay: %d\n",
+ 				val);
+ 			return -EINVAL;
+ 		}
+@@ -983,7 +984,7 @@ static int sun8i_dwmac_set_syscon(struct
+ 	if (gmac->variant->support_rmii)
+ 		reg &= ~SYSCON_RMII_EN;
+ 
+-	switch (priv->plat->interface) {
++	switch (plat->interface) {
+ 	case PHY_INTERFACE_MODE_MII:
+ 		/* default */
+ 		break;
+@@ -997,8 +998,8 @@ static int sun8i_dwmac_set_syscon(struct
+ 		reg |= SYSCON_RMII_EN | SYSCON_ETCS_EXT_GMII;
+ 		break;
+ 	default:
+-		dev_err(priv->device, "Unsupported interface mode: %s",
+-			phy_modes(priv->plat->interface));
++		dev_err(dev, "Unsupported interface mode: %s",
++			phy_modes(plat->interface));
+ 		return -EINVAL;
+ 	}
+ 
+@@ -1023,8 +1024,6 @@ static void sun8i_dwmac_exit(struct plat
+ 			sun8i_dwmac_unpower_internal_phy(gmac);
+ 	}
+ 
+-	sun8i_dwmac_unset_syscon(gmac);
+-
+ 	clk_disable_unprepare(gmac->tx_clk);
+ 
+ 	if (gmac->regulator)
+@@ -1059,16 +1058,11 @@ static struct mac_device_info *sun8i_dwm
+ {
+ 	struct mac_device_info *mac;
+ 	struct stmmac_priv *priv = ppriv;
+-	int ret;
+ 
+ 	mac = devm_kzalloc(priv->device, sizeof(*mac), GFP_KERNEL);
+ 	if (!mac)
+ 		return NULL;
+ 
+-	ret = sun8i_dwmac_set_syscon(priv);
+-	if (ret)
+-		return NULL;
+-
+ 	mac->pcsr = priv->ioaddr;
+ 	mac->mac = &sun8i_dwmac_ops;
+ 	mac->dma = &sun8i_dwmac_dma_ops;
+@@ -1224,10 +1218,14 @@ static int sun8i_dwmac_probe(struct plat
+ 	plat_dat->exit = sun8i_dwmac_exit;
+ 	plat_dat->setup = sun8i_dwmac_setup;
+ 
+-	ret = sun8i_dwmac_init(pdev, plat_dat->bsp_priv);
++	ret = sun8i_dwmac_set_syscon(&pdev->dev, plat_dat);
+ 	if (ret)
+ 		goto dwmac_deconfig;
+ 
++	ret = sun8i_dwmac_init(pdev, plat_dat->bsp_priv);
++	if (ret)
++		goto dwmac_syscon;
++
+ 	ret = stmmac_dvr_probe(&pdev->dev, plat_dat, &stmmac_res);
+ 	if (ret)
+ 		goto dwmac_exit;
+@@ -1256,11 +1254,12 @@ static int sun8i_dwmac_probe(struct plat
+ dwmac_mux:
+ 	reset_control_put(gmac->rst_ephy);
+ 	clk_put(gmac->ephy_clk);
+-	sun8i_dwmac_unset_syscon(gmac);
+ dwmac_remove:
+ 	stmmac_dvr_remove(&pdev->dev);
+ dwmac_exit:
+ 	sun8i_dwmac_exit(pdev, gmac);
++dwmac_syscon:
++	sun8i_dwmac_unset_syscon(gmac);
+ dwmac_deconfig:
+ 	stmmac_remove_config_dt(pdev, plat_dat);
+ 
+@@ -1281,6 +1280,7 @@ static int sun8i_dwmac_remove(struct pla
+ 	}
+ 
+ 	stmmac_pltfr_remove(pdev);
++	sun8i_dwmac_unset_syscon(gmac);
+ 
+ 	return 0;
+ }
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Jakub Kicinski <kuba@kernel.org>
+Date: Wed, 30 Dec 2020 19:40:27 -0800
+Subject: net: vlan: avoid leaks on register_vlan_dev() failures
+
+From: Jakub Kicinski <kuba@kernel.org>
+
+[ Upstream commit 55b7ab1178cbf41f979ff83236d3321ad35ed2ad ]
+
+VLAN checks for NETREG_UNINITIALIZED to distinguish between
+registration failure and unregistration in progress.
+
+Since commit cb626bf566eb ("net-sysfs: Fix reference count leak")
+registration failure may, however, result in NETREG_UNREGISTERED
+as well as NETREG_UNINITIALIZED.
+
+This fix is similer to cebb69754f37 ("rtnetlink: Fix
+memory(net_device) leak when ->newlink fails")
+
+Fixes: cb626bf566eb ("net-sysfs: Fix reference count leak")
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ net/8021q/vlan.c |    3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+--- a/net/8021q/vlan.c
++++ b/net/8021q/vlan.c
+@@ -284,7 +284,8 @@ static int register_vlan_device(struct n
+ 	return 0;
+ 
+ out_free_newdev:
+-	if (new_dev->reg_state == NETREG_UNINITIALIZED)
++	if (new_dev->reg_state == NETREG_UNINITIALIZED ||
++	    new_dev->reg_state == NETREG_UNREGISTERED)
+ 		free_netdev(new_dev);
+ 	return err;
+ }
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Christophe JAILLET <christophe.jaillet@wanadoo.fr>
+Date: Sun, 3 Jan 2021 11:26:26 +1100
+Subject: net/sonic: Fix some resource leaks in error handling paths
+
+From: Christophe JAILLET <christophe.jaillet@wanadoo.fr>
+
+[ Upstream commit 0f7ba7bc46fa0b574ccacf5672991b321e028492 ]
+
+A call to dma_alloc_coherent() is wrapped by sonic_alloc_descriptors().
+
+This is correctly freed in the remove function, but not in the error
+handling path of the probe function. Fix this by adding the missing
+dma_free_coherent() call.
+
+While at it, rename a label in order to be slightly more informative.
+
+Cc: Christophe JAILLET <christophe.jaillet@wanadoo.fr>
+Cc: Thomas Bogendoerfer <tsbogend@alpha.franken.de>
+Cc: Chris Zankel <chris@zankel.net>
+References: commit 10e3cc180e64 ("net/sonic: Fix a resource leak in an error handling path in 'jazz_sonic_probe()'")
+Fixes: 74f2a5f0ef64 ("xtensa: Add support for the Sonic Ethernet device for the XT2000 board.")
+Fixes: efcce839360f ("[PATCH] macsonic/jazzsonic network drivers update")
+Signed-off-by: Christophe JAILLET <christophe.jaillet@wanadoo.fr>
+Signed-off-by: Finn Thain <fthain@telegraphics.com.au>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/natsemi/macsonic.c |   12 ++++++++++--
+ drivers/net/ethernet/natsemi/xtsonic.c  |    7 +++++--
+ 2 files changed, 15 insertions(+), 4 deletions(-)
+
+--- a/drivers/net/ethernet/natsemi/macsonic.c
++++ b/drivers/net/ethernet/natsemi/macsonic.c
+@@ -506,10 +506,14 @@ static int mac_sonic_platform_probe(stru
+ 
+ 	err = register_netdev(dev);
+ 	if (err)
+-		goto out;
++		goto undo_probe;
+ 
+ 	return 0;
+ 
++undo_probe:
++	dma_free_coherent(lp->device,
++			  SIZEOF_SONIC_DESC * SONIC_BUS_SCALE(lp->dma_bitmode),
++			  lp->descriptors, lp->descriptors_laddr);
+ out:
+ 	free_netdev(dev);
+ 
+@@ -584,12 +588,16 @@ static int mac_sonic_nubus_probe(struct
+ 
+ 	err = register_netdev(ndev);
+ 	if (err)
+-		goto out;
++		goto undo_probe;
+ 
+ 	nubus_set_drvdata(board, ndev);
+ 
+ 	return 0;
+ 
++undo_probe:
++	dma_free_coherent(lp->device,
++			  SIZEOF_SONIC_DESC * SONIC_BUS_SCALE(lp->dma_bitmode),
++			  lp->descriptors, lp->descriptors_laddr);
+ out:
+ 	free_netdev(ndev);
+ 	return err;
+--- a/drivers/net/ethernet/natsemi/xtsonic.c
++++ b/drivers/net/ethernet/natsemi/xtsonic.c
+@@ -229,11 +229,14 @@ int xtsonic_probe(struct platform_device
+ 	sonic_msg_init(dev);
+ 
+ 	if ((err = register_netdev(dev)))
+-		goto out1;
++		goto undo_probe1;
+ 
+ 	return 0;
+ 
+-out1:
++undo_probe1:
++	dma_free_coherent(lp->device,
++			  SIZEOF_SONIC_DESC * SONIC_BUS_SCALE(lp->dma_bitmode),
++			  lp->descriptors, lp->descriptors_laddr);
+ 	release_region(dev->base_addr, SONIC_MEM_SIZE);
+ out:
+ 	free_netdev(dev);
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Jakub Kicinski <kuba@kernel.org>
+Date: Tue, 5 Jan 2021 11:07:25 -0800
+Subject: net: bareudp: add missing error handling for bareudp_link_config()
+
+From: Jakub Kicinski <kuba@kernel.org>
+
+[ Upstream commit 94bcfdbff0c210b17b27615f4952cc6ece7d5f5f ]
+
+.dellink does not get called after .newlink fails,
+bareudp_newlink() must undo what bareudp_configure()
+has done if bareudp_link_config() fails.
+
+v2: call bareudp_dellink(), like bareudp_dev_create() does
+
+Fixes: 571912c69f0e ("net: UDP tunnel encapsulation module for tunnelling different protocols like MPLS, IP, NSH etc.")
+Link: https://lore.kernel.org/r/20210105190725.1736246-1-kuba@kernel.org
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/bareudp.c |   22 ++++++++++++++--------
+ 1 file changed, 14 insertions(+), 8 deletions(-)
+
+--- a/drivers/net/bareudp.c
++++ b/drivers/net/bareudp.c
+@@ -645,11 +645,20 @@ static int bareudp_link_config(struct ne
+ 	return 0;
+ }
+ 
++static void bareudp_dellink(struct net_device *dev, struct list_head *head)
++{
++	struct bareudp_dev *bareudp = netdev_priv(dev);
++
++	list_del(&bareudp->next);
++	unregister_netdevice_queue(dev, head);
++}
++
+ static int bareudp_newlink(struct net *net, struct net_device *dev,
+ 			   struct nlattr *tb[], struct nlattr *data[],
+ 			   struct netlink_ext_ack *extack)
+ {
+ 	struct bareudp_conf conf;
++	LIST_HEAD(list_kill);
+ 	int err;
+ 
+ 	err = bareudp2info(data, &conf, extack);
+@@ -662,17 +671,14 @@ static int bareudp_newlink(struct net *n
+ 
+ 	err = bareudp_link_config(dev, tb);
+ 	if (err)
+-		return err;
++		goto err_unconfig;
+ 
+ 	return 0;
+-}
+-
+-static void bareudp_dellink(struct net_device *dev, struct list_head *head)
+-{
+-	struct bareudp_dev *bareudp = netdev_priv(dev);
+ 
+-	list_del(&bareudp->next);
+-	unregister_netdevice_queue(dev, head);
++err_unconfig:
++	bareudp_dellink(dev, &list_kill);
++	unregister_netdevice_many(&list_kill);
++	return err;
+ }
+ 
+ static size_t bareudp_get_size(const struct net_device *dev)
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Randy Dunlap <rdunlap@infradead.org>
+Date: Tue, 5 Jan 2021 20:25:31 -0800
+Subject: ptp: ptp_ines: prevent build when HAS_IOMEM is not set
+
+From: Randy Dunlap <rdunlap@infradead.org>
+
+[ Upstream commit 1f685e6adbbe3c7b1bd9053be771b898d9efa655 ]
+
+ptp_ines.c uses devm_platform_ioremap_resource(), which is only
+built/available when CONFIG_HAS_IOMEM is enabled.
+CONFIG_HAS_IOMEM is not enabled for arch/s390/, so builds on S390
+have a build error:
+
+s390-linux-ld: drivers/ptp/ptp_ines.o: in function `ines_ptp_ctrl_probe':
+ptp_ines.c:(.text+0x17e6): undefined reference to `devm_platform_ioremap_resource'
+
+Prevent builds of ptp_ines.c when HAS_IOMEM is not set.
+
+Fixes: bad1eaa6ac31 ("ptp: Add a driver for InES time stamping IP core.")
+Signed-off-by: Randy Dunlap <rdunlap@infradead.org>
+Reported-by: kernel test robot <lkp@intel.com>
+Link: lore.kernel.org/r/202101031125.ZEFCUiKi-lkp@intel.com
+Acked-by: Richard Cochran <richardcochran@gmail.com>
+Link: https://lore.kernel.org/r/20210106042531.1351-1-rdunlap@infradead.org
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/ptp/Kconfig |    1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/drivers/ptp/Kconfig
++++ b/drivers/ptp/Kconfig
+@@ -78,6 +78,7 @@ config DP83640_PHY
+ config PTP_1588_CLOCK_INES
+ 	tristate "ZHAW InES PTP time stamping IP core"
+ 	depends on NETWORK_PHY_TIMESTAMPING
++	depends on HAS_IOMEM
+ 	depends on PHYLIB
+ 	depends on PTP_1588_CLOCK
+ 	help
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Sean Tranchetti <stranche@codeaurora.org>
+Date: Tue, 5 Jan 2021 16:22:25 -0800
+Subject: net: ipv6: fib: flush exceptions when purging route
+
+From: Sean Tranchetti <stranche@codeaurora.org>
+
+[ Upstream commit d8f5c29653c3f6995e8979be5623d263e92f6b86 ]
+
+Route removal is handled by two code paths. The main removal path is via
+fib6_del_route() which will handle purging any PMTU exceptions from the
+cache, removing all per-cpu copies of the DST entry used by the route, and
+releasing the fib6_info struct.
+
+The second removal location is during fib6_add_rt2node() during a route
+replacement operation. This path also calls fib6_purge_rt() to handle
+cleaning up the per-cpu copies of the DST entries and releasing the
+fib6_info associated with the older route, but it does not flush any PMTU
+exceptions that the older route had. Since the older route is removed from
+the tree during the replacement, we lose any way of accessing it again.
+
+As these lingering DSTs and the fib6_info struct are holding references to
+the underlying netdevice struct as well, unregistering that device from the
+kernel can never complete.
+
+Fixes: 2b760fcf5cfb3 ("ipv6: hook up exception table to store dst cache")
+Signed-off-by: Sean Tranchetti <stranche@codeaurora.org>
+Reviewed-by: David Ahern <dsahern@kernel.org>
+Link: https://lore.kernel.org/r/1609892546-11389-1-git-send-email-stranche@quicinc.com
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ net/ipv6/ip6_fib.c |    5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+--- a/net/ipv6/ip6_fib.c
++++ b/net/ipv6/ip6_fib.c
+@@ -1025,6 +1025,8 @@ static void fib6_purge_rt(struct fib6_in
+ {
+ 	struct fib6_table *table = rt->fib6_table;
+ 
++	/* Flush all cached dst in exception table */
++	rt6_flush_exceptions(rt);
+ 	fib6_drop_pcpu_from(rt, table);
+ 
+ 	if (rt->nh && !list_empty(&rt->nh_list))
+@@ -1927,9 +1929,6 @@ static void fib6_del_route(struct fib6_t
+ 	net->ipv6.rt6_stats->fib_rt_entries--;
+ 	net->ipv6.rt6_stats->fib_discarded_routes++;
+ 
+-	/* Flush all cached dst in exception table */
+-	rt6_flush_exceptions(rt);
+-
+ 	/* Reset round-robin state, if necessary */
+ 	if (rcu_access_pointer(fn->rr_ptr) == rt)
+ 		fn->rr_ptr = NULL;
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Sean Tranchetti <stranche@codeaurora.org>
+Date: Tue, 5 Jan 2021 16:22:26 -0800
+Subject: tools: selftests: add test for changing routes with PTMU exceptions
+
+From: Sean Tranchetti <stranche@codeaurora.org>
+
+[ Upstream commit 5316a7c0130acf09bfc8bb0092407006010fcccc ]
+
+Adds new 2 new tests to the PTMU script: pmtu_ipv4/6_route_change.
+
+These tests explicitly test for a recently discovered problem in the
+IPv6 routing framework where PMTU exceptions were not properly released
+when replacing a route via "ip route change ...".
+
+After creating PMTU exceptions, the route from the device A to R1 will be
+replaced with a new route, then device A will be deleted. If the PMTU
+exceptions were properly cleaned up by the kernel, this device deletion
+will succeed. Otherwise, the unregistration of the device will stall, and
+messages such as the following will be logged in dmesg:
+
+unregister_netdevice: waiting for veth_A-R1 to become free. Usage count = 4
+
+Signed-off-by: Sean Tranchetti <stranche@codeaurora.org>
+Reviewed-by: David Ahern <dsahern@kernel.org>
+Link: https://lore.kernel.org/r/1609892546-11389-2-git-send-email-stranche@quicinc.com
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ tools/testing/selftests/net/pmtu.sh |   71 ++++++++++++++++++++++++++++++++++--
+ 1 file changed, 69 insertions(+), 2 deletions(-)
+
+--- a/tools/testing/selftests/net/pmtu.sh
++++ b/tools/testing/selftests/net/pmtu.sh
+@@ -162,7 +162,15 @@
+ # - list_flush_ipv6_exception
+ #	Using the same topology as in pmtu_ipv6, create exceptions, and check
+ #	they are shown when listing exception caches, gone after flushing them
+-
++#
++# - pmtu_ipv4_route_change
++#	Use the same topology as in pmtu_ipv4, but issue a route replacement
++#	command and delete the corresponding device afterward. This tests for
++#	proper cleanup of the PMTU exceptions by the route replacement path.
++#	Device unregistration should complete successfully
++#
++# - pmtu_ipv6_route_change
++#	Same as above but with IPv6
+ 
+ # Kselftest framework requirement - SKIP code is 4.
+ ksft_skip=4
+@@ -224,7 +232,9 @@ tests="
+ 	cleanup_ipv4_exception		ipv4: cleanup of cached exceptions	1
+ 	cleanup_ipv6_exception		ipv6: cleanup of cached exceptions	1
+ 	list_flush_ipv4_exception	ipv4: list and flush cached exceptions	1
+-	list_flush_ipv6_exception	ipv6: list and flush cached exceptions	1"
++	list_flush_ipv6_exception	ipv6: list and flush cached exceptions	1
++	pmtu_ipv4_route_change		ipv4: PMTU exception w/route replace	1
++	pmtu_ipv6_route_change		ipv6: PMTU exception w/route replace	1"
+ 
+ NS_A="ns-A"
+ NS_B="ns-B"
+@@ -1770,6 +1780,63 @@ test_list_flush_ipv6_exception() {
+ 	return ${fail}
+ }
+ 
++test_pmtu_ipvX_route_change() {
++	family=${1}
++
++	setup namespaces routing || return 2
++	trace "${ns_a}"  veth_A-R1    "${ns_r1}" veth_R1-A \
++	      "${ns_r1}" veth_R1-B    "${ns_b}"  veth_B-R1 \
++	      "${ns_a}"  veth_A-R2    "${ns_r2}" veth_R2-A \
++	      "${ns_r2}" veth_R2-B    "${ns_b}"  veth_B-R2
++
++	if [ ${family} -eq 4 ]; then
++		ping=ping
++		dst1="${prefix4}.${b_r1}.1"
++		dst2="${prefix4}.${b_r2}.1"
++		gw="${prefix4}.${a_r1}.2"
++	else
++		ping=${ping6}
++		dst1="${prefix6}:${b_r1}::1"
++		dst2="${prefix6}:${b_r2}::1"
++		gw="${prefix6}:${a_r1}::2"
++	fi
++
++	# Set up initial MTU values
++	mtu "${ns_a}"  veth_A-R1 2000
++	mtu "${ns_r1}" veth_R1-A 2000
++	mtu "${ns_r1}" veth_R1-B 1400
++	mtu "${ns_b}"  veth_B-R1 1400
++
++	mtu "${ns_a}"  veth_A-R2 2000
++	mtu "${ns_r2}" veth_R2-A 2000
++	mtu "${ns_r2}" veth_R2-B 1500
++	mtu "${ns_b}"  veth_B-R2 1500
++
++	# Create route exceptions
++	run_cmd ${ns_a} ${ping} -q -M want -i 0.1 -w 1 -s 1800 ${dst1}
++	run_cmd ${ns_a} ${ping} -q -M want -i 0.1 -w 1 -s 1800 ${dst2}
++
++	# Check that exceptions have been created with the correct PMTU
++	pmtu_1="$(route_get_dst_pmtu_from_exception "${ns_a}" ${dst1})"
++	check_pmtu_value "1400" "${pmtu_1}" "exceeding MTU" || return 1
++	pmtu_2="$(route_get_dst_pmtu_from_exception "${ns_a}" ${dst2})"
++	check_pmtu_value "1500" "${pmtu_2}" "exceeding MTU" || return 1
++
++	# Replace the route from A to R1
++	run_cmd ${ns_a} ip route change default via ${gw}
++
++	# Delete the device in A
++	run_cmd ${ns_a} ip link del "veth_A-R1"
++}
++
++test_pmtu_ipv4_route_change() {
++	test_pmtu_ipvX_route_change 4
++}
++
++test_pmtu_ipv6_route_change() {
++	test_pmtu_ipvX_route_change 6
++}
++
+ usage() {
+ 	echo
+ 	echo "$0 [OPTIONS] [TEST]..."
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Florian Westphal <fw@strlen.de>
+Date: Wed, 6 Jan 2021 00:15:22 +0100
+Subject: net: fix pmtu check in nopmtudisc mode
+
+From: Florian Westphal <fw@strlen.de>
+
+[ Upstream commit 50c661670f6a3908c273503dfa206dfc7aa54c07 ]
+
+For some reason ip_tunnel insist on setting the DF bit anyway when the
+inner header has the DF bit set, EVEN if the tunnel was configured with
+'nopmtudisc'.
+
+This means that the script added in the previous commit
+cannot be made to work by adding the 'nopmtudisc' flag to the
+ip tunnel configuration. Doing so breaks connectivity even for the
+without-conntrack/netfilter scenario.
+
+When nopmtudisc is set, the tunnel will skip the mtu check, so no
+icmp error is sent to client. Then, because inner header has DF set,
+the outer header gets added with DF bit set as well.
+
+IP stack then sends an error to itself because the packet exceeds
+the device MTU.
+
+Fixes: 23a3647bc4f93 ("ip_tunnels: Use skb-len to PMTU check.")
+Cc: Stefano Brivio <sbrivio@redhat.com>
+Signed-off-by: Florian Westphal <fw@strlen.de>
+Acked-by: Pablo Neira Ayuso <pablo@netfilter.org>
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ net/ipv4/ip_tunnel.c |   11 +++++------
+ 1 file changed, 5 insertions(+), 6 deletions(-)
+
+--- a/net/ipv4/ip_tunnel.c
++++ b/net/ipv4/ip_tunnel.c
+@@ -759,8 +759,11 @@ void ip_tunnel_xmit(struct sk_buff *skb,
+ 		goto tx_error;
+ 	}
+ 
+-	if (tnl_update_pmtu(dev, skb, rt, tnl_params->frag_off, inner_iph,
+-			    0, 0, false)) {
++	df = tnl_params->frag_off;
++	if (skb->protocol == htons(ETH_P_IP) && !tunnel->ignore_df)
++		df |= (inner_iph->frag_off & htons(IP_DF));
++
++	if (tnl_update_pmtu(dev, skb, rt, df, inner_iph, 0, 0, false)) {
+ 		ip_rt_put(rt);
+ 		goto tx_error;
+ 	}
+@@ -788,10 +791,6 @@ void ip_tunnel_xmit(struct sk_buff *skb,
+ 			ttl = ip4_dst_hoplimit(&rt->dst);
+ 	}
+ 
+-	df = tnl_params->frag_off;
+-	if (skb->protocol == htons(ETH_P_IP) && !tunnel->ignore_df)
+-		df |= (inner_iph->frag_off&htons(IP_DF));
+-
+ 	max_headroom = LL_RESERVED_SPACE(rt->dst.dev) + sizeof(struct iphdr)
+ 			+ rt->dst.header_len + ip_encap_hlen(&tunnel->encap);
+ 	if (max_headroom > dev->needed_headroom)
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Florian Westphal <fw@strlen.de>
+Date: Wed, 6 Jan 2021 00:15:23 +0100
+Subject: net: ip: always refragment ip defragmented packets
+
+From: Florian Westphal <fw@strlen.de>
+
+[ Upstream commit bb4cc1a18856a73f0ff5137df0c2a31f4c50f6cf ]
+
+Conntrack reassembly records the largest fragment size seen in IPCB.
+However, when this gets forwarded/transmitted, fragmentation will only
+be forced if one of the fragmented packets had the DF bit set.
+
+In that case, a flag in IPCB will force fragmentation even if the
+MTU is large enough.
+
+This should work fine, but this breaks with ip tunnels.
+Consider client that sends a UDP datagram of size X to another host.
+
+The client fragments the datagram, so two packets, of size y and z, are
+sent. DF bit is not set on any of these packets.
+
+Middlebox netfilter reassembles those packets back to single size-X
+packet, before routing decision.
+
+packet-size-vs-mtu checks in ip_forward are irrelevant, because DF bit
+isn't set.  At output time, ip refragmentation is skipped as well
+because x is still smaller than the mtu of the output device.
+
+If ttransmit device is an ip tunnel, the packet size increases to
+x+overhead.
+
+Also, tunnel might be configured to force DF bit on outer header.
+
+In this case, packet will be dropped (exceeds MTU) and an ICMP error is
+generated back to sender.
+
+But sender already respects the announced MTU, all the packets that
+it sent did fit the announced mtu.
+
+Force refragmentation as per original sizes unconditionally so ip tunnel
+will encapsulate the fragments instead.
+
+The only other solution I see is to place ip refragmentation in
+the ip_tunnel code to handle this case.
+
+Fixes: d6b915e29f4ad ("ip_fragment: don't forward defragmented DF packet")
+Reported-by: Christian Perle <christian.perle@secunet.com>
+Signed-off-by: Florian Westphal <fw@strlen.de>
+Acked-by: Pablo Neira Ayuso <pablo@netfilter.org>
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ net/ipv4/ip_output.c |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/net/ipv4/ip_output.c
++++ b/net/ipv4/ip_output.c
+@@ -302,7 +302,7 @@ static int __ip_finish_output(struct net
+ 	if (skb_is_gso(skb))
+ 		return ip_finish_output_gso(net, sk, skb, mtu);
+ 
+-	if (skb->len > mtu || (IPCB(skb)->flags & IPSKB_FRAG_PMTU))
++	if (skb->len > mtu || IPCB(skb)->frag_max_size)
+ 		return ip_fragment(net, sk, skb, mtu, ip_finish_output2);
+ 
+ 	return ip_finish_output2(net, sk, skb);
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Ayush Sawal <ayush.sawal@chelsio.com>
+Date: Wed, 6 Jan 2021 09:59:06 +0530
+Subject: chtls: Fix hardware tid leak
+
+From: Ayush Sawal <ayush.sawal@chelsio.com>
+
+[ Upstream commit 717df0f4cdc9044c415431a3522b3e9ccca5b4a3 ]
+
+send_abort_rpl() is not calculating cpl_abort_req_rss offset and
+ends up sending wrong TID with abort_rpl WR causng tid leaks.
+Replaced send_abort_rpl() with chtls_send_abort_rpl() as it is
+redundant.
+
+Fixes: cc35c88ae4db ("crypto : chtls - CPL handler definition")
+Signed-off-by: Rohit Maheshwari <rohitm@chelsio.com>
+Signed-off-by: Ayush Sawal <ayush.sawal@chelsio.com>
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c |   39 ------------
+ 1 file changed, 3 insertions(+), 36 deletions(-)
+
+--- a/drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c
++++ b/drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c
+@@ -1996,39 +1996,6 @@ static void t4_defer_reply(struct sk_buf
+ 	spin_unlock_bh(&cdev->deferq.lock);
+ }
+ 
+-static void send_abort_rpl(struct sock *sk, struct sk_buff *skb,
+-			   struct chtls_dev *cdev, int status, int queue)
+-{
+-	struct cpl_abort_req_rss *req = cplhdr(skb);
+-	struct sk_buff *reply_skb;
+-	struct chtls_sock *csk;
+-
+-	csk = rcu_dereference_sk_user_data(sk);
+-
+-	reply_skb = alloc_skb(sizeof(struct cpl_abort_rpl),
+-			      GFP_KERNEL);
+-
+-	if (!reply_skb) {
+-		req->status = (queue << 1);
+-		t4_defer_reply(skb, cdev, send_defer_abort_rpl);
+-		return;
+-	}
+-
+-	set_abort_rpl_wr(reply_skb, GET_TID(req), status);
+-	kfree_skb(skb);
+-
+-	set_wr_txq(reply_skb, CPL_PRIORITY_DATA, queue);
+-	if (csk_conn_inline(csk)) {
+-		struct l2t_entry *e = csk->l2t_entry;
+-
+-		if (e && sk->sk_state != TCP_SYN_RECV) {
+-			cxgb4_l2t_send(csk->egress_dev, reply_skb, e);
+-			return;
+-		}
+-	}
+-	cxgb4_ofld_send(cdev->lldi->ports[0], reply_skb);
+-}
+-
+ static void chtls_send_abort_rpl(struct sock *sk, struct sk_buff *skb,
+ 				 struct chtls_dev *cdev,
+ 				 int status, int queue)
+@@ -2078,8 +2045,8 @@ static void bl_abort_syn_rcv(struct sock
+ 
+ 	skb->sk	= NULL;
+ 	do_abort_syn_rcv(child, lsk);
+-	send_abort_rpl(child, skb, BLOG_SKB_CB(skb)->cdev,
+-		       CPL_ABORT_NO_RST, queue);
++	chtls_send_abort_rpl(child, skb, BLOG_SKB_CB(skb)->cdev,
++			     CPL_ABORT_NO_RST, queue);
+ }
+ 
+ static int abort_syn_rcv(struct sock *sk, struct sk_buff *skb)
+@@ -2110,7 +2077,7 @@ static int abort_syn_rcv(struct sock *sk
+ 		int queue = csk->txq_idx;
+ 
+ 		do_abort_syn_rcv(sk, psk);
+-		send_abort_rpl(sk, skb, cdev, CPL_ABORT_NO_RST, queue);
++		chtls_send_abort_rpl(sk, skb, cdev, CPL_ABORT_NO_RST, queue);
+ 	} else {
+ 		skb->sk = sk;
+ 		BLOG_SKB_CB(skb)->backlog_rcv = bl_abort_syn_rcv;
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Ayush Sawal <ayush.sawal@chelsio.com>
+Date: Wed, 6 Jan 2021 09:59:07 +0530
+Subject: chtls: Remove invalid set_tcb call
+
+From: Ayush Sawal <ayush.sawal@chelsio.com>
+
+[ Upstream commit 827d329105bfde6701f0077e34a09c4a86e27145 ]
+
+At the time of SYN_RECV, connection information is not
+initialized at FW, updating tcb flag over uninitialized
+connection causes adapter crash. We don't need to
+update the flag during SYN_RECV state, so avoid this.
+
+Fixes: cc35c88ae4db ("crypto : chtls - CPL handler definition")
+Signed-off-by: Rohit Maheshwari <rohitm@chelsio.com>
+Signed-off-by: Ayush Sawal <ayush.sawal@chelsio.com>
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c |    3 ---
+ 1 file changed, 3 deletions(-)
+
+--- a/drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c
++++ b/drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c
+@@ -2095,9 +2095,6 @@ static void chtls_abort_req_rss(struct s
+ 	int queue = csk->txq_idx;
+ 
+ 	if (is_neg_adv(req->status)) {
+-		if (sk->sk_state == TCP_SYN_RECV)
+-			chtls_set_tcb_tflag(sk, 0, 0);
+-
+ 		kfree_skb(skb);
+ 		return;
+ 	}
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Ayush Sawal <ayush.sawal@chelsio.com>
+Date: Wed, 6 Jan 2021 09:59:08 +0530
+Subject: chtls: Fix panic when route to peer not configured
+
+From: Ayush Sawal <ayush.sawal@chelsio.com>
+
+[ Upstream commit 5a5fac9966bb6d513198634b0b1357be7e8447d2 ]
+
+If route to peer is not configured, we might get non tls
+devices from dst_neigh_lookup() which is invalid, adding a
+check to avoid it.
+
+Fixes: cc35c88ae4db ("crypto : chtls - CPL handler definition")
+Signed-off-by: Rohit Maheshwari <rohitm@chelsio.com>
+Signed-off-by: Ayush Sawal <ayush.sawal@chelsio.com>
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c |   14 ++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+--- a/drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c
++++ b/drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c
+@@ -1109,6 +1109,7 @@ static struct sock *chtls_recv_sock(stru
+ 				    const struct cpl_pass_accept_req *req,
+ 				    struct chtls_dev *cdev)
+ {
++	struct adapter *adap = pci_get_drvdata(cdev->pdev);
+ 	struct neighbour *n = NULL;
+ 	struct inet_sock *newinet;
+ 	const struct iphdr *iph;
+@@ -1118,9 +1119,10 @@ static struct sock *chtls_recv_sock(stru
+ 	struct dst_entry *dst;
+ 	struct tcp_sock *tp;
+ 	struct sock *newsk;
++	bool found = false;
+ 	u16 port_id;
+ 	int rxq_idx;
+-	int step;
++	int step, i;
+ 
+ 	iph = (const struct iphdr *)network_hdr;
+ 	newsk = tcp_create_openreq_child(lsk, oreq, cdev->askb);
+@@ -1152,7 +1154,7 @@ static struct sock *chtls_recv_sock(stru
+ 		n = dst_neigh_lookup(dst, &ip6h->saddr);
+ #endif
+ 	}
+-	if (!n)
++	if (!n || !n->dev)
+ 		goto free_sk;
+ 
+ 	ndev = n->dev;
+@@ -1161,6 +1163,13 @@ static struct sock *chtls_recv_sock(stru
+ 	if (is_vlan_dev(ndev))
+ 		ndev = vlan_dev_real_dev(ndev);
+ 
++	for_each_port(adap, i)
++		if (cdev->ports[i] == ndev)
++			found = true;
++
++	if (!found)
++		goto free_dst;
++
+ 	port_id = cxgb4_port_idx(ndev);
+ 
+ 	csk = chtls_sock_create(cdev);
+@@ -1237,6 +1246,7 @@ static struct sock *chtls_recv_sock(stru
+ free_csk:
+ 	chtls_sock_release(&csk->kref);
+ free_dst:
++	neigh_release(n);
+ 	dst_release(dst);
+ free_sk:
+ 	inet_csk_prepare_forced_close(newsk);
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Ayush Sawal <ayush.sawal@chelsio.com>
+Date: Wed, 6 Jan 2021 09:59:09 +0530
+Subject: chtls: Avoid unnecessary freeing of oreq pointer
+
+From: Ayush Sawal <ayush.sawal@chelsio.com>
+
+[ Upstream commit f8d15d29d6e6b32704c8fce9229716ca145a0de2 ]
+
+In chtls_pass_accept_request(), removing the chtls_reqsk_free()
+call to avoid oreq freeing twice. Here oreq is the pointer to
+struct request_sock.
+
+Fixes: cc35c88ae4db ("crypto : chtls - CPL handler definition")
+Signed-off-by: Rohit Maheshwari <rohitm@chelsio.com>
+Signed-off-by: Ayush Sawal <ayush.sawal@chelsio.com>
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c |    4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+--- a/drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c
++++ b/drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c
+@@ -1396,7 +1396,7 @@ static void chtls_pass_accept_request(st
+ 
+ 	newsk = chtls_recv_sock(sk, oreq, network_hdr, req, cdev);
+ 	if (!newsk)
+-		goto free_oreq;
++		goto reject;
+ 
+ 	if (chtls_get_module(newsk))
+ 		goto reject;
+@@ -1412,8 +1412,6 @@ static void chtls_pass_accept_request(st
+ 	kfree_skb(skb);
+ 	return;
+ 
+-free_oreq:
+-	chtls_reqsk_free(oreq);
+ reject:
+ 	mk_tid_release(reply_skb, 0, tid);
+ 	cxgb4_ofld_send(cdev->lldi->ports[0], reply_skb);
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Ayush Sawal <ayush.sawal@chelsio.com>
+Date: Wed, 6 Jan 2021 09:59:10 +0530
+Subject: chtls: Replace skb_dequeue with skb_peek
+
+From: Ayush Sawal <ayush.sawal@chelsio.com>
+
+[ Upstream commit a84b2c0d5fa23da6d6c8c0d5f5c93184a2744d3e ]
+
+The skb is unlinked twice, one in __skb_dequeue in function
+chtls_reset_synq() and another in cleanup_syn_rcv_conn().
+So in this patch using skb_peek() instead of __skb_dequeue(),
+so that unlink will be handled only in cleanup_syn_rcv_conn().
+
+Fixes: cc35c88ae4db ("crypto : chtls - CPL handler definition")
+Signed-off-by: Vinay Kumar Yadav <vinay.yadav@chelsio.com>
+Signed-off-by: Ayush Sawal <ayush.sawal@chelsio.com>
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c
++++ b/drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c
+@@ -621,7 +621,7 @@ static void chtls_reset_synq(struct list
+ 
+ 	while (!skb_queue_empty(&listen_ctx->synq)) {
+ 		struct chtls_sock *csk =
+-			container_of((struct synq *)__skb_dequeue
++			container_of((struct synq *)skb_peek
+ 				(&listen_ctx->synq), struct chtls_sock, synq);
+ 		struct sock *child = csk->sk;
+ 
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Ayush Sawal <ayush.sawal@chelsio.com>
+Date: Wed, 6 Jan 2021 09:59:11 +0530
+Subject: chtls: Added a check to avoid NULL pointer dereference
+
+From: Ayush Sawal <ayush.sawal@chelsio.com>
+
+[ Upstream commit eade1e0a4fb31d48eeb1589d9bb859ae4dd6181d ]
+
+In case of server removal lookup_stid() may return NULL pointer, which
+is used as listen_ctx. So added a check before accessing this pointer.
+
+Fixes: cc35c88ae4db ("crypto : chtls - CPL handler definition")
+Signed-off-by: Vinay Kumar Yadav <vinay.yadav@chelsio.com>
+Signed-off-by: Ayush Sawal <ayush.sawal@chelsio.com>
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c |    5 +++++
+ 1 file changed, 5 insertions(+)
+
+--- a/drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c
++++ b/drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c
+@@ -1596,6 +1596,11 @@ static int chtls_pass_establish(struct c
+ 			sk_wake_async(sk, 0, POLL_OUT);
+ 
+ 		data = lookup_stid(cdev->tids, stid);
++		if (!data) {
++			/* listening server close */
++			kfree_skb(skb);
++			goto unlock;
++		}
+ 		lsk = ((struct listen_ctx *)data)->lsk;
+ 
+ 		bh_lock_sock(lsk);
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Ayush Sawal <ayush.sawal@chelsio.com>
+Date: Wed, 6 Jan 2021 09:59:12 +0530
+Subject: chtls: Fix chtls resources release sequence
+
+From: Ayush Sawal <ayush.sawal@chelsio.com>
+
+[ Upstream commit 15ef6b0e30b354253e2c10b3836bc59767eb162b ]
+
+CPL_ABORT_RPL is sent after releasing the resources by calling
+chtls_release_resources(sk); and chtls_conn_done(sk);
+eventually causing kernel panic. Fixing it by calling release
+in appropriate order.
+
+Fixes: cc35c88ae4db ("crypto : chtls - CPL handler definition")
+Signed-off-by: Vinay Kumar Yadav <vinay.yadav@chelsio.com>
+Signed-off-by: Ayush Sawal <ayush.sawal@chelsio.com>
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c |    8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+--- a/drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c
++++ b/drivers/net/ethernet/chelsio/inline_crypto/chtls/chtls_cm.c
+@@ -2057,9 +2057,9 @@ static void bl_abort_syn_rcv(struct sock
+ 	queue = csk->txq_idx;
+ 
+ 	skb->sk	= NULL;
+-	do_abort_syn_rcv(child, lsk);
+ 	chtls_send_abort_rpl(child, skb, BLOG_SKB_CB(skb)->cdev,
+ 			     CPL_ABORT_NO_RST, queue);
++	do_abort_syn_rcv(child, lsk);
+ }
+ 
+ static int abort_syn_rcv(struct sock *sk, struct sk_buff *skb)
+@@ -2089,8 +2089,8 @@ static int abort_syn_rcv(struct sock *sk
+ 	if (!sock_owned_by_user(psk)) {
+ 		int queue = csk->txq_idx;
+ 
+-		do_abort_syn_rcv(sk, psk);
+ 		chtls_send_abort_rpl(sk, skb, cdev, CPL_ABORT_NO_RST, queue);
++		do_abort_syn_rcv(sk, psk);
+ 	} else {
+ 		skb->sk = sk;
+ 		BLOG_SKB_CB(skb)->backlog_rcv = bl_abort_syn_rcv;
+@@ -2134,12 +2134,12 @@ static void chtls_abort_req_rss(struct s
+ 		if (sk->sk_state == TCP_SYN_RECV && !abort_syn_rcv(sk, skb))
+ 			return;
+ 
+-		chtls_release_resources(sk);
+-		chtls_conn_done(sk);
+ 	}
+ 
+ 	chtls_send_abort_rpl(sk, skb, BLOG_SKB_CB(skb)->cdev,
+ 			     rst_status, queue);
++	chtls_release_resources(sk);
++	chtls_conn_done(sk);
+ }
+ 
+ static void chtls_abort_rpl_rss(struct sock *sk, struct sk_buff *skb)
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Colin Ian King <colin.king@canonical.com>
+Date: Thu, 7 Jan 2021 12:39:16 +0000
+Subject: octeontx2-af: fix memory leak of lmac and lmac->name
+
+From: Colin Ian King <colin.king@canonical.com>
+
+[ Upstream commit ac7996d680d8b4a51bb99bbdcee3dc838b985498 ]
+
+Currently the error return paths don't kfree lmac and lmac->name
+leading to some memory leaks.  Fix this by adding two error return
+paths that kfree these objects
+
+Addresses-Coverity: ("Resource leak")
+Fixes: 1463f382f58d ("octeontx2-af: Add support for CGX link management")
+Signed-off-by: Colin Ian King <colin.king@canonical.com>
+Link: https://lore.kernel.org/r/20210107123916.189748-1-colin.king@canonical.com
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/marvell/octeontx2/af/cgx.c |   14 +++++++++++---
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+--- a/drivers/net/ethernet/marvell/octeontx2/af/cgx.c
++++ b/drivers/net/ethernet/marvell/octeontx2/af/cgx.c
+@@ -862,8 +862,10 @@ static int cgx_lmac_init(struct cgx *cgx
+ 		if (!lmac)
+ 			return -ENOMEM;
+ 		lmac->name = kcalloc(1, sizeof("cgx_fwi_xxx_yyy"), GFP_KERNEL);
+-		if (!lmac->name)
+-			return -ENOMEM;
++		if (!lmac->name) {
++			err = -ENOMEM;
++			goto err_lmac_free;
++		}
+ 		sprintf(lmac->name, "cgx_fwi_%d_%d", cgx->cgx_id, i);
+ 		lmac->lmac_id = i;
+ 		lmac->cgx = cgx;
+@@ -874,7 +876,7 @@ static int cgx_lmac_init(struct cgx *cgx
+ 						 CGX_LMAC_FWI + i * 9),
+ 				   cgx_fwi_event_handler, 0, lmac->name, lmac);
+ 		if (err)
+-			return err;
++			goto err_irq;
+ 
+ 		/* Enable interrupt */
+ 		cgx_write(cgx, lmac->lmac_id, CGXX_CMRX_INT_ENA_W1S,
+@@ -886,6 +888,12 @@ static int cgx_lmac_init(struct cgx *cgx
+ 	}
+ 
+ 	return cgx_lmac_verify_fwi_version(cgx);
++
++err_irq:
++	kfree(lmac->name);
++err_lmac_free:
++	kfree(lmac);
++	return err;
+ }
+ 
+ static int cgx_lmac_exit(struct cgx *cgx)
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Ido Schimmel <idosch@nvidia.com>
+Date: Thu, 7 Jan 2021 16:48:21 +0200
+Subject: nexthop: Fix off-by-one error in error path
+
+From: Ido Schimmel <idosch@nvidia.com>
+
+[ Upstream commit 07e61a979ca4dddb3661f59328b3cd109f6b0070 ]
+
+A reference was not taken for the current nexthop entry, so do not try
+to put it in the error path.
+
+Fixes: 430a049190de ("nexthop: Add support for nexthop groups")
+Signed-off-by: Ido Schimmel <idosch@nvidia.com>
+Reviewed-by: Petr Machata <petrm@nvidia.com>
+Reviewed-by: David Ahern <dsahern@kernel.org>
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ net/ipv4/nexthop.c |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/net/ipv4/nexthop.c
++++ b/net/ipv4/nexthop.c
+@@ -1277,7 +1277,7 @@ static struct nexthop *nexthop_create_gr
+ 	return nh;
+ 
+ out_no_nh:
+-	for (; i >= 0; --i)
++	for (i--; i >= 0; --i)
+ 		nexthop_put(nhg->nh_entries[i].nh);
+ 
+ 	kfree(nhg->spare);
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Ido Schimmel <idosch@nvidia.com>
+Date: Thu, 7 Jan 2021 16:48:22 +0200
+Subject: nexthop: Unlink nexthop group entry in error path
+
+From: Ido Schimmel <idosch@nvidia.com>
+
+[ Upstream commit 7b01e53eee6dce7a8a6736e06b99b68cd0cc7a27 ]
+
+In case of error, remove the nexthop group entry from the list to which
+it was previously added.
+
+Fixes: 430a049190de ("nexthop: Add support for nexthop groups")
+Signed-off-by: Ido Schimmel <idosch@nvidia.com>
+Reviewed-by: Petr Machata <petrm@nvidia.com>
+Reviewed-by: David Ahern <dsahern@kernel.org>
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ net/ipv4/nexthop.c |    4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+--- a/net/ipv4/nexthop.c
++++ b/net/ipv4/nexthop.c
+@@ -1277,8 +1277,10 @@ static struct nexthop *nexthop_create_gr
+ 	return nh;
+ 
+ out_no_nh:
+-	for (i--; i >= 0; --i)
++	for (i--; i >= 0; --i) {
++		list_del(&nhg->nh_entries[i].nh_list);
+ 		nexthop_put(nhg->nh_entries[i].nh);
++	}
+ 
+ 	kfree(nhg->spare);
+ 	kfree(nhg);
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Petr Machata <petrm@nvidia.com>
+Date: Thu, 7 Jan 2021 16:48:23 +0200
+Subject: nexthop: Bounce NHA_GATEWAY in FDB nexthop groups
+
+From: Petr Machata <petrm@nvidia.com>
+
+[ Upstream commit b19218b27f3477316d296e8bcf4446aaf017aa69 ]
+
+The function nh_check_attr_group() is called to validate nexthop groups.
+The intention of that code seems to have been to bounce all attributes
+above NHA_GROUP_TYPE except for NHA_FDB. However instead it bounces all
+these attributes except when NHA_FDB attribute is present--then it accepts
+them.
+
+NHA_FDB validation that takes place before, in rtm_to_nh_config(), already
+bounces NHA_OIF, NHA_BLACKHOLE, NHA_ENCAP and NHA_ENCAP_TYPE. Yet further
+back, NHA_GROUPS and NHA_MASTER are bounced unconditionally.
+
+But that still leaves NHA_GATEWAY as an attribute that would be accepted in
+FDB nexthop groups (with no meaning), so long as it keeps the address
+family as unspecified:
+
+ # ip nexthop add id 1 fdb via 127.0.0.1
+ # ip nexthop add id 10 fdb via default group 1
+
+The nexthop code is still relatively new and likely not used very broadly,
+and the FDB bits are newer still. Even though there is a reproducer out
+there, it relies on an improbable gateway arguments "via default", "via
+all" or "via any". Given all this, I believe it is OK to reformulate the
+condition to do the right thing and bounce NHA_GATEWAY.
+
+Fixes: 38428d68719c ("nexthop: support for fdb ecmp nexthops")
+Signed-off-by: Petr Machata <petrm@nvidia.com>
+Signed-off-by: Ido Schimmel <idosch@nvidia.com>
+Reviewed-by: David Ahern <dsahern@kernel.org>
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ net/ipv4/nexthop.c |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/net/ipv4/nexthop.c
++++ b/net/ipv4/nexthop.c
+@@ -496,7 +496,7 @@ static int nh_check_attr_group(struct ne
+ 	for (i = NHA_GROUP_TYPE + 1; i < __NHA_MAX; ++i) {
+ 		if (!tb[i])
+ 			continue;
+-		if (tb[NHA_FDB])
++		if (i == NHA_FDB)
+ 			continue;
+ 		NL_SET_ERR_MSG(extack,
+ 			       "No other attributes can be set in nexthop groups");
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Julian Wiedmann <jwi@linux.ibm.com>
+Date: Thu, 7 Jan 2021 18:24:40 +0100
+Subject: s390/qeth: fix deadlock during recovery
+
+From: Julian Wiedmann <jwi@linux.ibm.com>
+
+[ Upstream commit 0b9902c1fcc59ba75268386c0420a554f8844168 ]
+
+When qeth_dev_layer2_store() - holding the discipline_mutex - waits
+inside qeth_l*_remove_device() for a qeth_do_reset() thread to complete,
+we can hit a deadlock if qeth_do_reset() concurrently calls
+qeth_set_online() and thus tries to aquire the discipline_mutex.
+
+Move the discipline_mutex locking outside of qeth_set_online() and
+qeth_set_offline(), and turn the discipline into a parameter so that
+callers understand the dependency.
+
+To fix the deadlock, we can now relax the locking:
+As already established, qeth_l*_remove_device() waits for
+qeth_do_reset() to complete. So qeth_do_reset() itself is under no risk
+of having card->discipline ripped out while it's running, and thus
+doesn't need to take the discipline_mutex.
+
+Fixes: 9dc48ccc68b9 ("qeth: serialize sysfs-triggered device configurations")
+Signed-off-by: Julian Wiedmann <jwi@linux.ibm.com>
+Reviewed-by: Alexandra Winter <wintera@linux.ibm.com>
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/s390/net/qeth_core.h      |    3 ++-
+ drivers/s390/net/qeth_core_main.c |   35 ++++++++++++++++++++++-------------
+ drivers/s390/net/qeth_l2_main.c   |    7 +++++--
+ drivers/s390/net/qeth_l3_main.c   |    7 +++++--
+ 4 files changed, 34 insertions(+), 18 deletions(-)
+
+--- a/drivers/s390/net/qeth_core.h
++++ b/drivers/s390/net/qeth_core.h
+@@ -1075,7 +1075,8 @@ struct qeth_card *qeth_get_card_by_busid
+ void qeth_set_allowed_threads(struct qeth_card *card, unsigned long threads,
+ 			      int clear_start_mask);
+ int qeth_threads_running(struct qeth_card *, unsigned long);
+-int qeth_set_offline(struct qeth_card *card, bool resetting);
++int qeth_set_offline(struct qeth_card *card, const struct qeth_discipline *disc,
++		     bool resetting);
+ 
+ int qeth_send_ipa_cmd(struct qeth_card *, struct qeth_cmd_buffer *,
+ 		  int (*reply_cb)
+--- a/drivers/s390/net/qeth_core_main.c
++++ b/drivers/s390/net/qeth_core_main.c
+@@ -5300,12 +5300,12 @@ out:
+ 	return rc;
+ }
+ 
+-static int qeth_set_online(struct qeth_card *card)
++static int qeth_set_online(struct qeth_card *card,
++			   const struct qeth_discipline *disc)
+ {
+ 	bool carrier_ok;
+ 	int rc;
+ 
+-	mutex_lock(&card->discipline_mutex);
+ 	mutex_lock(&card->conf_mutex);
+ 	QETH_CARD_TEXT(card, 2, "setonlin");
+ 
+@@ -5322,7 +5322,7 @@ static int qeth_set_online(struct qeth_c
+ 		/* no need for locking / error handling at this early stage: */
+ 		qeth_set_real_num_tx_queues(card, qeth_tx_actual_queues(card));
+ 
+-	rc = card->discipline->set_online(card, carrier_ok);
++	rc = disc->set_online(card, carrier_ok);
+ 	if (rc)
+ 		goto err_online;
+ 
+@@ -5330,7 +5330,6 @@ static int qeth_set_online(struct qeth_c
+ 	kobject_uevent(&card->gdev->dev.kobj, KOBJ_CHANGE);
+ 
+ 	mutex_unlock(&card->conf_mutex);
+-	mutex_unlock(&card->discipline_mutex);
+ 	return 0;
+ 
+ err_online:
+@@ -5345,15 +5344,14 @@ err_hardsetup:
+ 	qdio_free(CARD_DDEV(card));
+ 
+ 	mutex_unlock(&card->conf_mutex);
+-	mutex_unlock(&card->discipline_mutex);
+ 	return rc;
+ }
+ 
+-int qeth_set_offline(struct qeth_card *card, bool resetting)
++int qeth_set_offline(struct qeth_card *card, const struct qeth_discipline *disc,
++		     bool resetting)
+ {
+ 	int rc, rc2, rc3;
+ 
+-	mutex_lock(&card->discipline_mutex);
+ 	mutex_lock(&card->conf_mutex);
+ 	QETH_CARD_TEXT(card, 3, "setoffl");
+ 
+@@ -5374,7 +5372,7 @@ int qeth_set_offline(struct qeth_card *c
+ 
+ 	cancel_work_sync(&card->rx_mode_work);
+ 
+-	card->discipline->set_offline(card);
++	disc->set_offline(card);
+ 
+ 	qeth_qdio_clear_card(card, 0);
+ 	qeth_drain_output_queues(card);
+@@ -5395,16 +5393,19 @@ int qeth_set_offline(struct qeth_card *c
+ 	kobject_uevent(&card->gdev->dev.kobj, KOBJ_CHANGE);
+ 
+ 	mutex_unlock(&card->conf_mutex);
+-	mutex_unlock(&card->discipline_mutex);
+ 	return 0;
+ }
+ EXPORT_SYMBOL_GPL(qeth_set_offline);
+ 
+ static int qeth_do_reset(void *data)
+ {
++	const struct qeth_discipline *disc;
+ 	struct qeth_card *card = data;
+ 	int rc;
+ 
++	/* Lock-free, other users will block until we are done. */
++	disc = card->discipline;
++
+ 	QETH_CARD_TEXT(card, 2, "recover1");
+ 	if (!qeth_do_run_thread(card, QETH_RECOVER_THREAD))
+ 		return 0;
+@@ -5412,8 +5413,8 @@ static int qeth_do_reset(void *data)
+ 	dev_warn(&card->gdev->dev,
+ 		 "A recovery process has been started for the device\n");
+ 
+-	qeth_set_offline(card, true);
+-	rc = qeth_set_online(card);
++	qeth_set_offline(card, disc, true);
++	rc = qeth_set_online(card, disc);
+ 	if (!rc) {
+ 		dev_info(&card->gdev->dev,
+ 			 "Device successfully recovered!\n");
+@@ -6423,7 +6424,10 @@ static int qeth_core_set_online(struct c
+ 		}
+ 	}
+ 
+-	rc = qeth_set_online(card);
++	mutex_lock(&card->discipline_mutex);
++	rc = qeth_set_online(card, card->discipline);
++	mutex_unlock(&card->discipline_mutex);
++
+ err:
+ 	return rc;
+ }
+@@ -6431,8 +6435,13 @@ err:
+ static int qeth_core_set_offline(struct ccwgroup_device *gdev)
+ {
+ 	struct qeth_card *card = dev_get_drvdata(&gdev->dev);
++	int rc;
+ 
+-	return qeth_set_offline(card, false);
++	mutex_lock(&card->discipline_mutex);
++	rc = qeth_set_offline(card, card->discipline, false);
++	mutex_unlock(&card->discipline_mutex);
++
++	return rc;
+ }
+ 
+ static void qeth_core_shutdown(struct ccwgroup_device *gdev)
+--- a/drivers/s390/net/qeth_l2_main.c
++++ b/drivers/s390/net/qeth_l2_main.c
+@@ -2207,8 +2207,11 @@ static void qeth_l2_remove_device(struct
+ 	qeth_set_allowed_threads(card, 0, 1);
+ 	wait_event(card->wait_q, qeth_threads_running(card, 0xffffffff) == 0);
+ 
+-	if (gdev->state == CCWGROUP_ONLINE)
+-		qeth_set_offline(card, false);
++	if (gdev->state == CCWGROUP_ONLINE) {
++		mutex_lock(&card->discipline_mutex);
++		qeth_set_offline(card, card->discipline, false);
++		mutex_unlock(&card->discipline_mutex);
++	}
+ 
+ 	cancel_work_sync(&card->close_dev_work);
+ 	if (card->dev->reg_state == NETREG_REGISTERED)
+--- a/drivers/s390/net/qeth_l3_main.c
++++ b/drivers/s390/net/qeth_l3_main.c
+@@ -1973,8 +1973,11 @@ static void qeth_l3_remove_device(struct
+ 	qeth_set_allowed_threads(card, 0, 1);
+ 	wait_event(card->wait_q, qeth_threads_running(card, 0xffffffff) == 0);
+ 
+-	if (cgdev->state == CCWGROUP_ONLINE)
+-		qeth_set_offline(card, false);
++	if (cgdev->state == CCWGROUP_ONLINE) {
++		mutex_lock(&card->discipline_mutex);
++		qeth_set_offline(card, card->discipline, false);
++		mutex_unlock(&card->discipline_mutex);
++	}
+ 
+ 	cancel_work_sync(&card->close_dev_work);
+ 	if (card->dev->reg_state == NETREG_REGISTERED)
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Julian Wiedmann <jwi@linux.ibm.com>
+Date: Thu, 7 Jan 2021 18:24:41 +0100
+Subject: s390/qeth: fix locking for discipline setup / removal
+
+From: Julian Wiedmann <jwi@linux.ibm.com>
+
+[ Upstream commit b41b554c1ee75070a14c02a88496b1f231c7eacc ]
+
+Due to insufficient locking, qeth_core_set_online() and
+qeth_dev_layer2_store() can run in parallel, both attempting to load &
+setup the discipline (and stepping on each other toes along the way).
+A similar race can also occur between qeth_core_remove_device() and
+qeth_dev_layer2_store().
+
+Access to .discipline is meant to be protected by the discipline_mutex,
+so add/expand the locking in qeth_core_remove_device() and
+qeth_core_set_online().
+Adjust the locking in qeth_l*_remove_device() accordingly, as it's now
+handled by the callers in a consistent manner.
+
+Based on an initial patch by Ursula Braun.
+
+Fixes: 9dc48ccc68b9 ("qeth: serialize sysfs-triggered device configurations")
+Signed-off-by: Julian Wiedmann <jwi@linux.ibm.com>
+Reviewed-by: Alexandra Winter <wintera@linux.ibm.com>
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/s390/net/qeth_core_main.c |    7 +++++--
+ drivers/s390/net/qeth_l2_main.c   |    5 +----
+ drivers/s390/net/qeth_l3_main.c   |    5 +----
+ 3 files changed, 7 insertions(+), 10 deletions(-)
+
+--- a/drivers/s390/net/qeth_core_main.c
++++ b/drivers/s390/net/qeth_core_main.c
+@@ -6361,6 +6361,7 @@ static int qeth_core_probe_device(struct
+ 		break;
+ 	default:
+ 		card->info.layer_enforced = true;
++		/* It's so early that we don't need the discipline_mutex yet. */
+ 		rc = qeth_core_load_discipline(card, enforced_disc);
+ 		if (rc)
+ 			goto err_load;
+@@ -6393,10 +6394,12 @@ static void qeth_core_remove_device(stru
+ 
+ 	QETH_CARD_TEXT(card, 2, "removedv");
+ 
++	mutex_lock(&card->discipline_mutex);
+ 	if (card->discipline) {
+ 		card->discipline->remove(gdev);
+ 		qeth_core_free_discipline(card);
+ 	}
++	mutex_unlock(&card->discipline_mutex);
+ 
+ 	qeth_free_qdio_queues(card);
+ 
+@@ -6411,6 +6414,7 @@ static int qeth_core_set_online(struct c
+ 	int rc = 0;
+ 	enum qeth_discipline_id def_discipline;
+ 
++	mutex_lock(&card->discipline_mutex);
+ 	if (!card->discipline) {
+ 		def_discipline = IS_IQD(card) ? QETH_DISCIPLINE_LAYER3 :
+ 						QETH_DISCIPLINE_LAYER2;
+@@ -6424,11 +6428,10 @@ static int qeth_core_set_online(struct c
+ 		}
+ 	}
+ 
+-	mutex_lock(&card->discipline_mutex);
+ 	rc = qeth_set_online(card, card->discipline);
+-	mutex_unlock(&card->discipline_mutex);
+ 
+ err:
++	mutex_unlock(&card->discipline_mutex);
+ 	return rc;
+ }
+ 
+--- a/drivers/s390/net/qeth_l2_main.c
++++ b/drivers/s390/net/qeth_l2_main.c
+@@ -2207,11 +2207,8 @@ static void qeth_l2_remove_device(struct
+ 	qeth_set_allowed_threads(card, 0, 1);
+ 	wait_event(card->wait_q, qeth_threads_running(card, 0xffffffff) == 0);
+ 
+-	if (gdev->state == CCWGROUP_ONLINE) {
+-		mutex_lock(&card->discipline_mutex);
++	if (gdev->state == CCWGROUP_ONLINE)
+ 		qeth_set_offline(card, card->discipline, false);
+-		mutex_unlock(&card->discipline_mutex);
+-	}
+ 
+ 	cancel_work_sync(&card->close_dev_work);
+ 	if (card->dev->reg_state == NETREG_REGISTERED)
+--- a/drivers/s390/net/qeth_l3_main.c
++++ b/drivers/s390/net/qeth_l3_main.c
+@@ -1973,11 +1973,8 @@ static void qeth_l3_remove_device(struct
+ 	qeth_set_allowed_threads(card, 0, 1);
+ 	wait_event(card->wait_q, qeth_threads_running(card, 0xffffffff) == 0);
+ 
+-	if (cgdev->state == CCWGROUP_ONLINE) {
+-		mutex_lock(&card->discipline_mutex);
++	if (cgdev->state == CCWGROUP_ONLINE)
+ 		qeth_set_offline(card, card->discipline, false);
+-		mutex_unlock(&card->discipline_mutex);
+-	}
+ 
+ 	cancel_work_sync(&card->close_dev_work);
+ 	if (card->dev->reg_state == NETREG_REGISTERED)
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Julian Wiedmann <jwi@linux.ibm.com>
+Date: Thu, 7 Jan 2021 18:24:42 +0100
+Subject: s390/qeth: fix L2 header access in qeth_l3_osa_features_check()
+
+From: Julian Wiedmann <jwi@linux.ibm.com>
+
+[ Upstream commit f9c4845385c8f6631ebd5dddfb019ea7a285fba4 ]
+
+ip_finish_output_gso() may call .ndo_features_check() even before the
+skb has a L2 header. This conflicts with qeth_get_ip_version()'s attempt
+to inspect the L2 header via vlan_eth_hdr().
+
+Switch to vlan_get_protocol(), as already used further down in the
+common qeth_features_check() path.
+
+Fixes: f13ade199391 ("s390/qeth: run non-offload L3 traffic over common xmit path")
+Signed-off-by: Julian Wiedmann <jwi@linux.ibm.com>
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/s390/net/qeth_l3_main.c |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/drivers/s390/net/qeth_l3_main.c
++++ b/drivers/s390/net/qeth_l3_main.c
+@@ -1816,7 +1816,7 @@ static netdev_features_t qeth_l3_osa_fea
+ 						    struct net_device *dev,
+ 						    netdev_features_t features)
+ {
+-	if (qeth_get_ip_version(skb) != 4)
++	if (vlan_get_protocol(skb) != htons(ETH_P_IP))
+ 		features &= ~NETIF_F_HW_VLAN_CTAG_TX;
+ 	return qeth_features_check(skb, dev, features);
+ }
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Aleksander Jan Bajkowski <olek2@wp.pl>
+Date: Thu, 7 Jan 2021 20:58:18 +0100
+Subject: net: dsa: lantiq_gswip: Exclude RMII from modes that report 1 GbE
+
+From: Aleksander Jan Bajkowski <olek2@wp.pl>
+
+[ Upstream commit 3545454c7801e391b0d966f82c98614d45394770 ]
+
+Exclude RMII from modes that report 1 GbE support. Reduced MII supports
+up to 100 MbE.
+
+Fixes: 14fceff4771e ("net: dsa: Add Lantiq / Intel DSA driver for vrx200")
+Signed-off-by: Aleksander Jan Bajkowski <olek2@wp.pl>
+Reviewed-by: Florian Fainelli <f.fainelli@gmail.com>
+Link: https://lore.kernel.org/r/20210107195818.3878-1-olek2@wp.pl
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/dsa/lantiq_gswip.c |    7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+--- a/drivers/net/dsa/lantiq_gswip.c
++++ b/drivers/net/dsa/lantiq_gswip.c
+@@ -1436,11 +1436,12 @@ static void gswip_phylink_validate(struc
+ 	phylink_set(mask, Pause);
+ 	phylink_set(mask, Asym_Pause);
+ 
+-	/* With the exclusion of MII and Reverse MII, we support Gigabit,
+-	 * including Half duplex
++	/* With the exclusion of MII, Reverse MII and Reduced MII, we
++	 * support Gigabit, including Half duplex
+ 	 */
+ 	if (state->interface != PHY_INTERFACE_MODE_MII &&
+-	    state->interface != PHY_INTERFACE_MODE_REVMII) {
++	    state->interface != PHY_INTERFACE_MODE_REVMII &&
++	    state->interface != PHY_INTERFACE_MODE_RMII) {
+ 		phylink_set(mask, 1000baseT_Full);
+ 		phylink_set(mask, 1000baseT_Half);
+ 	}
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Mark Zhang <markzhang@nvidia.com>
+Date: Mon, 14 Dec 2020 03:38:40 +0200
+Subject: net/mlx5: Use port_num 1 instead of 0 when delete a RoCE address
+
+From: Mark Zhang <markzhang@nvidia.com>
+
+[ Upstream commit 0f2dcade69f2af56b74bce432e48ff3957830ce2 ]
+
+In multi-port mode, FW reports syndrome 0x2ea48 (invalid vhca_port_number)
+if the port_num is not 1 or 2.
+
+Fixes: 80f09dfc237f ("net/mlx5: Eswitch, enable RoCE loopback traffic")
+Signed-off-by: Mark Zhang <markzhang@nvidia.com>
+Reviewed-by: Maor Gottlieb <maorg@nvidia.com>
+Signed-off-by: Saeed Mahameed <saeedm@nvidia.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/mellanox/mlx5/core/rdma.c |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/drivers/net/ethernet/mellanox/mlx5/core/rdma.c
++++ b/drivers/net/ethernet/mellanox/mlx5/core/rdma.c
+@@ -116,7 +116,7 @@ free:
+ static void mlx5_rdma_del_roce_addr(struct mlx5_core_dev *dev)
+ {
+ 	mlx5_core_roce_gid_set(dev, 0, 0, 0,
+-			       NULL, NULL, false, 0, 0);
++			       NULL, NULL, false, 0, 1);
+ }
+ 
+ static void mlx5_rdma_make_default_gid(struct mlx5_core_dev *dev, union ib_gid *gid)
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Aya Levin <ayal@nvidia.com>
+Date: Sun, 27 Dec 2020 16:33:19 +0200
+Subject: net/mlx5e: ethtool, Fix restriction of autoneg with 56G
+
+From: Aya Levin <ayal@nvidia.com>
+
+[ Upstream commit b1c0aca3d3ddeebeec57ada9c2df9ed647939249 ]
+
+Prior to this patch, configuring speed to 50G with autoneg off over
+devices supporting 50G per lane failed.
+Support for 50G per lane introduced a new set of link-modes, on which
+driver always performed a speed validation as if only legacy link-modes
+were configured. Fix driver speed validation to force setting autoneg
+over 56G only if in legacy link-mode.
+
+Fixes: 3d7cadae51f1 ("net/mlx5e: ethtool, Fix analysis of speed setting")
+Signed-off-by: Aya Levin <ayal@nvidia.com>
+Reviewed-by: Eran Ben Elisha <eranbe@nvidia.com>
+Signed-off-by: Saeed Mahameed <saeedm@nvidia.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/mellanox/mlx5/core/en_ethtool.c |   24 ++++++++++++++-----
+ 1 file changed, 18 insertions(+), 6 deletions(-)
+
+--- a/drivers/net/ethernet/mellanox/mlx5/core/en_ethtool.c
++++ b/drivers/net/ethernet/mellanox/mlx5/core/en_ethtool.c
+@@ -1007,6 +1007,22 @@ static int mlx5e_get_link_ksettings(stru
+ 	return mlx5e_ethtool_get_link_ksettings(priv, link_ksettings);
+ }
+ 
++static int mlx5e_speed_validate(struct net_device *netdev, bool ext,
++				const unsigned long link_modes, u8 autoneg)
++{
++	/* Extended link-mode has no speed limitations. */
++	if (ext)
++		return 0;
++
++	if ((link_modes & MLX5E_PROT_MASK(MLX5E_56GBASE_R4)) &&
++	    autoneg != AUTONEG_ENABLE) {
++		netdev_err(netdev, "%s: 56G link speed requires autoneg enabled\n",
++			   __func__);
++		return -EINVAL;
++	}
++	return 0;
++}
++
+ static u32 mlx5e_ethtool2ptys_adver_link(const unsigned long *link_modes)
+ {
+ 	u32 i, ptys_modes = 0;
+@@ -1100,13 +1116,9 @@ int mlx5e_ethtool_set_link_ksettings(str
+ 	link_modes = autoneg == AUTONEG_ENABLE ? ethtool2ptys_adver_func(adver) :
+ 		mlx5e_port_speed2linkmodes(mdev, speed, !ext);
+ 
+-	if ((link_modes & MLX5E_PROT_MASK(MLX5E_56GBASE_R4)) &&
+-	    autoneg != AUTONEG_ENABLE) {
+-		netdev_err(priv->netdev, "%s: 56G link speed requires autoneg enabled\n",
+-			   __func__);
+-		err = -EINVAL;
++	err = mlx5e_speed_validate(priv->netdev, ext, link_modes, autoneg);
++	if (err)
+ 		goto out;
+-	}
+ 
+ 	link_modes = link_modes & eproto.cap;
+ 	if (!link_modes) {
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Maor Dickman <maord@nvidia.com>
+Date: Mon, 14 Dec 2020 13:53:03 +0200
+Subject: net/mlx5e: In skb build skip setting mark in switchdev mode
+
+From: Maor Dickman <maord@nvidia.com>
+
+[ Upstream commit e13ed0ac064dd6ee964155ba9fdc2f3c3785934c ]
+
+sop_drop_qpn field in the cqe is used by two features, in SWITCHDEV mode
+to restore the chain id in case of a miss and in LEGACY mode to support
+skbedit mark action. In build RX skb, the skb mark field is set regardless
+of the configured mode which cause a corruption of the mark field in case
+of switchdev mode.
+
+Fix by overriding the mark value back to 0 in the representor tc update
+skb flow.
+
+Fixes: 8f1e0b97cc70 ("net/mlx5: E-Switch, Mark miss packets with new chain id mapping")
+Signed-off-by: Maor Dickman <maord@nvidia.com>
+Reviewed-by: Raed Salem <raeds@nvidia.com>
+Reviewed-by: Oz Shlomo <ozsh@nvidia.com>
+Signed-off-by: Saeed Mahameed <saeedm@nvidia.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/mellanox/mlx5/core/en/rep/tc.c |    5 +++++
+ 1 file changed, 5 insertions(+)
+
+--- a/drivers/net/ethernet/mellanox/mlx5/core/en/rep/tc.c
++++ b/drivers/net/ethernet/mellanox/mlx5/core/en/rep/tc.c
+@@ -626,6 +626,11 @@ bool mlx5e_rep_tc_update_skb(struct mlx5
+ 	if (!reg_c0)
+ 		return true;
+ 
++	/* If reg_c0 is not equal to the default flow tag then skb->mark
++	 * is not supported and must be reset back to 0.
++	 */
++	skb->mark = 0;
++
+ 	priv = netdev_priv(skb->dev);
+ 	esw = priv->mdev->priv.eswitch;
+ 
+From foo@baz Fri Jan 15 08:19:35 AM CET 2021
+From: Mark Zhang <markzhang@nvidia.com>
+Date: Mon, 30 Nov 2020 04:38:11 +0200
+Subject: net/mlx5: Check if lag is supported before creating one
+
+From: Mark Zhang <markzhang@nvidia.com>
+
+[ Upstream commit abf8ef953a43e74aac3c54a94975f21bd483199b ]
+
+This patch fixes a memleak issue by preventing to create a lag and
+add PFs if lag is not supported.
+
+comm “python3”, pid 349349, jiffies 4296985507 (age 1446.976s)
+hex dump (first 32 bytes):
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  …………….
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  …………….
+ backtrace:
+  [<000000005b216ae7>] mlx5_lag_add+0x1d5/0×3f0 [mlx5_core]
+  [<000000000445aa55>] mlx5e_nic_enable+0x66/0×1b0 [mlx5_core]
+  [<00000000c56734c3>] mlx5e_attach_netdev+0x16e/0×200 [mlx5_core]
+  [<0000000030439d1f>] mlx5e_attach+0x5c/0×90 [mlx5_core]
+  [<0000000018fd8615>] mlx5e_add+0x1a4/0×410 [mlx5_core]
+  [<0000000068bc504b>] mlx5_add_device+0x72/0×120 [mlx5_core]
+  [<000000009fce51f9>] mlx5_register_device+0x77/0xb0 [mlx5_core]
+  [<00000000d0d81ff3>] mlx5_load_one+0xc58/0×1eb0 [mlx5_core]
+  [<0000000045077adc>] init_one+0x3ea/0×920 [mlx5_core]
+  [<0000000043287674>] pci_device_probe+0xcd/0×150
+  [<00000000dafd3279>] really_probe+0x1c9/0×4b0
+  [<00000000f06bdd84>] driver_probe_device+0x5d/0×140
+  [<00000000e3d508b6>] device_driver_attach+0x4f/0×60
+  [<0000000084fba0f0>] bind_store+0xbf/0×120
+  [<00000000bf6622b3>] kernfs_fop_write+0x114/0×1b0
+
+Fixes: 9b412cc35f00 ("net/mlx5e: Add LAG warning if bond slave is not lag master")
+Signed-off-by: Mark Zhang <markzhang@nvidia.com>
+Reviewed-by: Leon Romanovsky <leonro@nvidia.com>
+Reviewed-by: Maor Gottlieb <maorg@nvidia.com>
+Signed-off-by: Saeed Mahameed <saeedm@nvidia.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/net/ethernet/mellanox/mlx5/core/lag.c |   11 +++++------
+ 1 file changed, 5 insertions(+), 6 deletions(-)
+
+--- a/drivers/net/ethernet/mellanox/mlx5/core/lag.c
++++ b/drivers/net/ethernet/mellanox/mlx5/core/lag.c
+@@ -556,7 +556,9 @@ void mlx5_lag_add(struct mlx5_core_dev *
+ 	struct mlx5_core_dev *tmp_dev;
+ 	int i, err;
+ 
+-	if (!MLX5_CAP_GEN(dev, vport_group_manager))
++	if (!MLX5_CAP_GEN(dev, vport_group_manager) ||
++	    !MLX5_CAP_GEN(dev, lag_master) ||
++	    MLX5_CAP_GEN(dev, num_lag_ports) != MLX5_MAX_PORTS)
+ 		return;
+ 
+ 	tmp_dev = mlx5_get_next_phys_dev(dev);
+@@ -574,12 +576,9 @@ void mlx5_lag_add(struct mlx5_core_dev *
+ 	if (mlx5_lag_dev_add_pf(ldev, dev, netdev) < 0)
+ 		return;
+ 
+-	for (i = 0; i < MLX5_MAX_PORTS; i++) {
+-		tmp_dev = ldev->pf[i].dev;
+-		if (!tmp_dev || !MLX5_CAP_GEN(tmp_dev, lag_master) ||
+-		    MLX5_CAP_GEN(tmp_dev, num_lag_ports) != MLX5_MAX_PORTS)
++	for (i = 0; i < MLX5_MAX_PORTS; i++)
++		if (!ldev->pf[i].dev)
+ 			break;
+-	}
+ 
+ 	if (i >= MLX5_MAX_PORTS)
+ 		ldev->flags |= MLX5_LAG_FLAG_READY;

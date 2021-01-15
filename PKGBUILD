@@ -11,10 +11,10 @@ _kernelname=-vd
 _sub=7
 #_rc=rc7
 pkgver=${_basekernel}.${_sub}
-pkgrel=1
-_archpatch=20210107
+pkgrel=3
+_archpatch=20210110
 _prjc="r2"
-_stablequeue=f296af7083
+_stablequeue=724c204f86
 arch=('x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
@@ -26,11 +26,11 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     'config.x86_64' 'config.x270' 'config.zen2' 'x509.genkey' "${pkgbase}.preset"
     #
     # Prepatch from stable-queue
-    #"prepatch-${_basekernel/./}-g${_stablequeue}.patch"
+    "prepatch-${_basekernel/./}-g${_stablequeue}.patch"
     #
     # sched/core patches
-    0001-sched-tip-picks-20201216.patch # use this with ProjectC
-    # 0001-sched-tip-picks-20201203.patch # use this without ProjectC
+    0001-sched-tip-picks-prjc-20210114.patch # use this with ProjectC
+    #0001-sched-tip-picks-20210114.patch # use this without ProjectC
     # RAPL for AMD 17h+19h
     0002-powercap-enable-rapl-for-fam17h-and-fam19h.patch
     # little inlining fix for gcc/asm
@@ -40,7 +40,8 @@ source=(https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${pkgver}.tar.{xz,sig
     # timers/core updates
     0005-timers-core-20201211.patch
     # Arch patches
-    0006-arch-patches510-${_archpatch}.patch::https://raw.githubusercontent.com/sirlucjan/kernel-patches/master/5.10/arch-patches-v8/0001-arch-patches.patch
+    # 0006-arch-patches510-${_archpatch}.patch::https://raw.githubusercontent.com/sirlucjan/kernel-patches/master/5.10/arch-patches-v9/0001-arch-patches.patch
+    0006-arch-patches510-${_archpatch}.patch
     # CPU patches
     0007-graysky-cpu-optimizations.patch
     0008-enable-O3-for-all-archs-and-add-option-for-O1.patch
@@ -114,12 +115,13 @@ sha256sums=('4cbf6e09f90f2ae7160432c884d5a2aeb9d33a07ca7f50eb7d80f427706ffabe'
             '5f3ba0271740d5921af99d61727a1a527b922746b7f8c8bb32fc4a210147d9d2'
             'ab010dc5ef6ce85d352956e5996d242246ecd0912b30f0b72025c38eadff8cd5'
             'a61304615276572501cc8ad67929c6fc7e7f176b7abc89916b7ba7a9ce7ffc2b'
-            '61874156f4a0f6ecd6bccbc298b43bb08928b178479b7cbda2414712d111dccd'
+            '10e28401679a06de7301da8c6c26e82fa2028a4246837ed262819ad7afeaedf1'
+            '8d45d3b7559ef29ba1225db0325bc6bba0f8cabc52e4f0c1a40d47f21214c35f'
             'a5e9d15b5ccc27a65324453a7e8ae1a6fd84d5baadc9ad989de1399ee332b9f5'
             'c3df7ad6f491a68c56841379f6c59688143e13df2e67e05ec751634caeaab753'
             'e784b4613dd8fcb8c065fe36df5f78f9bc7174c5b923b2384da031e79ee6ba7c'
             '9323dc442ede2b5824955b4d958f887a3b2173d45395ad4492566f370760c7af'
-            '66257f13b1381b71c5fb724c7049561ce09511adc24b3e981a1d42338403cae7'
+            '1ca9e6f9100199740387b237360480a4e3d0b459c53afc1001c53e3ad857cdb3'
             '429b41a987aa1a3b4975474d8b3ca2817a418435f4886e747140deed978ce284'
             '3d38fc4052b999b67aaed9fe9a4ba6ffd778ffbf7e94a66d5577391dbd08d12a'
             'b78ab97a629579ebc27ff175eacc9162a07c9b925cebd91099c97ef509bd117d'
@@ -128,14 +130,14 @@ sha256sums=('4cbf6e09f90f2ae7160432c884d5a2aeb9d33a07ca7f50eb7d80f427706ffabe'
             '4eaf4b72718637dbd6acd7c88215bf4ac7de1f6a7fc2b484ed7b565bfb8651b1'
             'e7d724ac15daf428aa1e6a03737e5c1d040892d55fda8a66897fcac9323f285c'
             '1f47d3e3956c41b47656f675a90fad9e318c7133ffe663dc0fd2c9aa0fbfeb3e'
-            'f58b8badfeda779d701ad015273d898df25a04a3702800dcbd1416875d916235'
+            '55221335aa2c1e6d75142d313036d9ad5b6248526de536a4079aaeb00db82328'
             '5000348583882523ef3c36df27eabf4355e83d0605081a3bf5d4aaa28e518162'
             'f82440b92e310b5e8558e1e8bcbaf7df0c9da84c3a50b8b24eed6540ef12b29b'
             '052b51392dc7f1c24fc354d5a21d87a78489a1999850a14b543502ed2009b653'
             '068f700ef4e96ca931d56951b23ece9446e7313d7efa35df769ffa8579035d2f'
             'fa87fc20c0183e14ff06e03a558ef5315c2f65c8dee4bab1118ade80282ba399'
             '5dace545bf5047cbac01bc587ee4cf369600ee66b92d9f30f1229c00ae887ffa'
-            '95bcb856f9b8b787703ea39b484661ef31341f0e218d863f8450975c29796516'
+            'f5957fdae50e62a4df2697ee3b6832b71fde728791fd0bc758570656afe44194'
             'b41115f256a5d41a06897b9544660a6a02977642e68a985e0ad32b764944c82d'
             '7fd689f4ec88364d1ac00007e6f1e273ee9b53cae187e0f70e7f810303dc9303'
             'f7a36231b794022d49e53f464d25e48f2eebf6266c2cbe5756c63aa3bf03bae7'
@@ -144,7 +146,7 @@ sha256sums=('4cbf6e09f90f2ae7160432c884d5a2aeb9d33a07ca7f50eb7d80f427706ffabe'
             '02d2c0e6b2459d4dbd6d4cecb3b269545a78b86cc9d2d3a0fda80bb3c3ee7604'
             'a231aebaa262c60f5f0151819db4b06e92986d5c81e8e0a90e7089a0ac9d454c'
             'fdb08f3fbfdd0ba71fbef5eed3f2617fd49214c40466a3c27e3bd0bf3861f90f'
-            'e45dcd7e50516012c518ba6fecf5c165a56f472ca6fc99de88066c1b8581e902'
+            '8597d546a9dc5a700ef2a73fab47a6ef89af2176bb79a4c42828128058b4eca2'
             'f86ebc85cb935e8c1dc81e64de3f6bb4dc0a714f3a1761428abe4b777c7ddbbb'
             '01ac61d81f3ae28713a81c1522f09ed64faeff9913e49c7886d2f1a15740d2c3')
 
@@ -159,18 +161,18 @@ _key="$HOME/build/keys/vd510-kernel-key.pem"
 _pubkey="$HOME/build/keys/vd510-kernel-pubkey.pem"
 
 # custom clang path
-# export PATH=/opt/clang12/bin:$PATH
+# export PATH=/opt/clang11/bin:$PATH
 _clang=0
 
 if [[ ${_clang} -eq 1 ]]; then
 	LLVMOPTS="LLVM=1 LLVM_IAS=1"
 	CLANGOPTS="CC=clang LD=ld.lld"
 	source+=('9001-objtool-fixes-jp.patch'
-	'9002-clang-lto-20210112.patch'
+	'9002-clang-lto-20210114.patch'
 	#'9003-clang-pgo-v4.patch'
 	)
-	sha256sums+=('2fdc25cd4aee97eefe4fdc073f5636c80a046e469deebd6708c1db8bc098f905'
-	'dd813a021506be286818b5c1786c75f8993c0056ea9b964eb950ee59cf3d877a'
+	sha256sums+=('f9b90666803ea6376c0f40c2b2f9385adaeef52ccdc720425e84915410415855'
+	'1692cfa096cab9cc4a8988253d4fca85244346276cddacd8791293d9f875db1b'
 	#'853d1875dca40a4bcd5f4b8420989cb9599c0c63c8b363a5996f76d3cad7b58c'
 	)
 else

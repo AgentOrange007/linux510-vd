@@ -6666,3 +6666,929 @@ index efac224c7..04a3ce20d 100644
 -- 
 2.29.2
 
+From d1515851ca075ed98fe78ac6abf24ba2dd25a63b Mon Sep 17 00:00:00 2001
+From: Viresh Kumar <viresh.kumar@linaro.org>
+Date: Tue, 8 Dec 2020 09:46:57 +0530
+Subject: [PATCH] thermal: cpufreq_cooling: Reuse sched_cpu_util() for SMP
+ platforms
+
+Several parts of the kernel are already using the effective CPU
+utilization (as seen by the scheduler) to get the current load on the
+CPU, do the same here instead of depending on the idle time of the CPU,
+which isn't that accurate comparatively.
+
+This is also the right thing to do as it makes the cpufreq governor
+(schedutil) align better with the cpufreq_cooling driver, as the power
+requested by cpufreq_cooling governor will exactly match the next
+frequency requested by the schedutil governor since they are both using
+the same metric to calculate load.
+
+This was tested on ARM Hikey6220 platform with hackbench, sysbench and
+schbench. None of them showed any regression or significant
+improvements. Schbench is the most important ones out of these as it
+creates the scenario where the utilization numbers provide a better
+estimate of the future.
+
+Scenario 1: The CPUs were mostly idle in the previous polling window of
+the IPA governor as the tasks were sleeping and here are the details
+from traces (load is in %):
+
+ Old: thermal_power_cpu_get_power: cpus=00000000,000000ff freq=1200000 total_load=203 load={{0x35,0x1,0x0,0x31,0x0,0x0,0x64,0x0}} dynamic_power=1339
+ New: thermal_power_cpu_get_power: cpus=00000000,000000ff freq=1200000 total_load=600 load={{0x60,0x46,0x45,0x45,0x48,0x3b,0x61,0x44}} dynamic_power=3960
+
+Here, the "Old" line gives the load and requested_power (dynamic_power
+here) numbers calculated using the idle time based implementation, while
+"New" is based on the CPU utilization from scheduler.
+
+As can be clearly seen, the load and requested_power numbers are simply
+incorrect in the idle time based approach and the numbers collected from
+CPU's utilization are much closer to the reality.
+
+Scenario 2: The CPUs were busy in the previous polling window of the IPA
+governor:
+
+ Old: thermal_power_cpu_get_power: cpus=00000000,000000ff freq=1200000 total_load=800 load={{0x64,0x64,0x64,0x64,0x64,0x64,0x64,0x64}} dynamic_power=5280
+ New: thermal_power_cpu_get_power: cpus=00000000,000000ff freq=1200000 total_load=708 load={{0x4d,0x5c,0x5c,0x5b,0x5c,0x5c,0x51,0x5b}} dynamic_power=4672
+
+As can be seen, the idle time based load is 100% for all the CPUs as it
+took only the last window into account, but in reality the CPUs aren't
+that loaded as shown by the utilization numbers.
+
+Signed-off-by: Viresh Kumar <viresh.kumar@linaro.org>
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Reviewed-by: Lukasz Luba <lukasz.luba@arm.com>
+Link: https://lkml.kernel.org/r/9c255c83d78d58451abc06848001faef94c87a12.1607400596.git.viresh.kumar@linaro.org
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ drivers/thermal/cpufreq_cooling.c | 69 ++++++++++++++++++++++++-------
+ 1 file changed, 55 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/thermal/cpufreq_cooling.c b/drivers/thermal/cpufreq_cooling.c
+index 612f063c1..f5af2571f 100644
+--- a/drivers/thermal/cpufreq_cooling.c
++++ b/drivers/thermal/cpufreq_cooling.c
+@@ -76,7 +76,9 @@ struct cpufreq_cooling_device {
+ 	struct em_perf_domain *em;
+ 	struct cpufreq_policy *policy;
+ 	struct list_head node;
++#ifndef CONFIG_SMP
+ 	struct time_in_idle *idle_time;
++#endif
+ 	struct freq_qos_request qos_req;
+ };
+ 
+@@ -132,14 +134,25 @@ static u32 cpu_power_to_freq(struct cpufreq_cooling_device *cpufreq_cdev,
+ }
+ 
+ /**
+- * get_load() - get load for a cpu since last updated
+- * @cpufreq_cdev:	&struct cpufreq_cooling_device for this cpu
+- * @cpu:	cpu number
+- * @cpu_idx:	index of the cpu in time_in_idle*
++ * get_load() - get load for a cpu
++ * @cpufreq_cdev: struct cpufreq_cooling_device for the cpu
++ * @cpu: cpu number
++ * @cpu_idx: index of the cpu in time_in_idle array
+  *
+  * Return: The average load of cpu @cpu in percentage since this
+  * function was last called.
+  */
++#ifdef CONFIG_SMP
++static u32 get_load(struct cpufreq_cooling_device *cpufreq_cdev, int cpu,
++		    int cpu_idx)
++{
++	unsigned long max = arch_scale_cpu_capacity(cpu);
++	unsigned long util;
++
++	util = sched_cpu_util(cpu, max);
++	return (util * 100) / max;
++}
++#else /* !CONFIG_SMP */
+ static u32 get_load(struct cpufreq_cooling_device *cpufreq_cdev, int cpu,
+ 		    int cpu_idx)
+ {
+@@ -161,6 +174,7 @@ static u32 get_load(struct cpufreq_cooling_device *cpufreq_cdev, int cpu,
+ 
+ 	return load;
+ }
++#endif /* CONFIG_SMP */
+ 
+ /**
+  * get_dynamic_power() - calculate the dynamic power
+@@ -346,6 +360,36 @@ static inline bool em_is_sane(struct cpufreq_cooling_device *cpufreq_cdev,
+ }
+ #endif /* CONFIG_THERMAL_GOV_POWER_ALLOCATOR */
+ 
++#ifdef CONFIG_SMP
++static inline int allocate_idle_time(struct cpufreq_cooling_device *cpufreq_cdev)
++{
++	return 0;
++}
++
++static inline void free_idle_time(struct cpufreq_cooling_device *cpufreq_cdev)
++{
++}
++#else
++static int allocate_idle_time(struct cpufreq_cooling_device *cpufreq_cdev)
++{
++	unsigned int num_cpus = cpumask_weight(cpufreq_cdev->policy->related_cpus);
++
++	cpufreq_cdev->idle_time = kcalloc(num_cpus,
++					  sizeof(*cpufreq_cdev->idle_time),
++					  GFP_KERNEL);
++	if (!cpufreq_cdev->idle_time)
++		return -ENOMEM;
++
++	return 0;
++}
++
++static void free_idle_time(struct cpufreq_cooling_device *cpufreq_cdev)
++{
++	kfree(cpufreq_cdev->idle_time);
++	cpufreq_cdev->idle_time = NULL;
++}
++#endif /* CONFIG_SMP */
++
+ static unsigned int get_state_freq(struct cpufreq_cooling_device *cpufreq_cdev,
+ 				   unsigned long state)
+ {
+@@ -485,7 +529,7 @@ __cpufreq_cooling_register(struct device_node *np,
+ 	struct thermal_cooling_device *cdev;
+ 	struct cpufreq_cooling_device *cpufreq_cdev;
+ 	char dev_name[THERMAL_NAME_LENGTH];
+-	unsigned int i, num_cpus;
++	unsigned int i;
+ 	struct device *dev;
+ 	int ret;
+ 	struct thermal_cooling_device_ops *cooling_ops;
+@@ -496,7 +540,6 @@ __cpufreq_cooling_register(struct device_node *np,
+ 		return ERR_PTR(-ENODEV);
+ 	}
+ 
+-
+ 	if (IS_ERR_OR_NULL(policy)) {
+ 		pr_err("%s: cpufreq policy isn't valid: %p\n", __func__, policy);
+ 		return ERR_PTR(-EINVAL);
+@@ -514,12 +557,10 @@ __cpufreq_cooling_register(struct device_node *np,
+ 		return ERR_PTR(-ENOMEM);
+ 
+ 	cpufreq_cdev->policy = policy;
+-	num_cpus = cpumask_weight(policy->related_cpus);
+-	cpufreq_cdev->idle_time = kcalloc(num_cpus,
+-					 sizeof(*cpufreq_cdev->idle_time),
+-					 GFP_KERNEL);
+-	if (!cpufreq_cdev->idle_time) {
+-		cdev = ERR_PTR(-ENOMEM);
++
++	ret = allocate_idle_time(cpufreq_cdev);
++	if (ret) {
++		cdev = ERR_PTR(ret);
+ 		goto free_cdev;
+ 	}
+ 
+@@ -579,7 +620,7 @@ __cpufreq_cooling_register(struct device_node *np,
+ remove_ida:
+ 	ida_simple_remove(&cpufreq_ida, cpufreq_cdev->id);
+ free_idle_time:
+-	kfree(cpufreq_cdev->idle_time);
++	free_idle_time(cpufreq_cdev);
+ free_cdev:
+ 	kfree(cpufreq_cdev);
+ 	return cdev;
+@@ -672,7 +713,7 @@ void cpufreq_cooling_unregister(struct thermal_cooling_device *cdev)
+ 	thermal_cooling_device_unregister(cdev);
+ 	freq_qos_remove_request(&cpufreq_cdev->qos_req);
+ 	ida_simple_remove(&cpufreq_ida, cpufreq_cdev->id);
+-	kfree(cpufreq_cdev->idle_time);
++	free_idle_time(cpufreq_cdev);
+ 	kfree(cpufreq_cdev);
+ }
+ EXPORT_SYMBOL_GPL(cpufreq_cooling_unregister);
+-- 
+2.30.0
+
+From e0b257c3b71bd98a4866c3daecf000998aaa4927 Mon Sep 17 00:00:00 2001
+From: Anna-Maria Behnsen <anna-maria@linutronix.de>
+Date: Tue, 15 Dec 2020 11:44:00 +0100
+Subject: [PATCH] sched: Prevent raising SCHED_SOFTIRQ when CPU is !active
+
+SCHED_SOFTIRQ is raised to trigger periodic load balancing. When CPU is not
+active, CPU should not participate in load balancing.
+
+The scheduler uses nohz.idle_cpus_mask to keep track of the CPUs which can
+do idle load balancing. When bringing a CPU up the CPU is added to the mask
+when it reaches the active state, but on teardown the CPU stays in the mask
+until it goes offline and invokes sched_cpu_dying().
+
+When SCHED_SOFTIRQ is raised on a !active CPU, there might be a pending
+softirq when stopping the tick which triggers a warning in NOHZ code. The
+SCHED_SOFTIRQ can also be raised by the scheduler tick which has the same
+issue.
+
+Therefore remove the CPU from nohz.idle_cpus_mask when it is marked
+inactive and also prevent the scheduler_tick() from raising SCHED_SOFTIRQ
+after this point.
+
+Signed-off-by: Anna-Maria Behnsen <anna-maria@linutronix.de>
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Reviewed-by: Steven Rostedt (VMware) <rostedt@goodmis.org>
+Link: https://lkml.kernel.org/r/20201215104400.9435-1-anna-maria@linutronix.de
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ kernel/sched/core.c | 7 ++++++-
+ kernel/sched/fair.c | 7 +++++--
+ 2 files changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index 4fe4cbf0b..06b449942 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -7596,6 +7596,12 @@ int sched_cpu_deactivate(unsigned int cpu)
+ 	struct rq_flags rf;
+ 	int ret;
+ 
++	/*
++	 * Remove CPU from nohz.idle_cpus_mask to prevent participating in
++	 * load balancing when not active
++	 */
++	nohz_balance_exit_idle(rq);
++
+ 	set_cpu_active(cpu, false);
+ 	/*
+ 	 * We've cleared cpu_active_mask, wait for all preempt-disabled and RCU
+@@ -7702,7 +7708,6 @@ int sched_cpu_dying(unsigned int cpu)
+ 
+ 	calc_load_migrate(rq);
+ 	update_max_interval();
+-	nohz_balance_exit_idle(rq);
+ 	hrtick_clear(rq);
+ 	return 0;
+ }
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index 39c5bda90..389cb5865 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -10700,8 +10700,11 @@ static __latent_entropy void run_rebalance_domains(struct softirq_action *h)
+  */
+ void trigger_load_balance(struct rq *rq)
+ {
+-	/* Don't need to rebalance while attached to NULL domain */
+-	if (unlikely(on_null_domain(rq)))
++	/*
++	 * Don't need to rebalance while attached to NULL domain or
++	 * runqueue CPU is not active
++	 */
++	if (unlikely(on_null_domain(rq) || !cpu_active(cpu_of(rq))))
+ 		return;
+ 
+ 	if (time_after_eq(jiffies, rq->next_balance))
+-- 
+2.30.0
+
+From 0301925dd004539adbcf11f68a3a785472376e27 Mon Sep 17 00:00:00 2001
+From: Peter Zijlstra <peterz@infradead.org>
+Date: Fri, 18 Dec 2020 11:28:12 +0100
+Subject: [PATCH] sched: Add schedutil overview
+
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Reviewed-by: Morten Rasmussen <morten.rasmussen@arm.com>
+Link: https://lkml.kernel.org/r/20201218103258.GA3040@hirez.programming.kicks-ass.net
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ Documentation/scheduler/schedutil.txt | 169 ++++++++++++++++++++++++++
+ 1 file changed, 169 insertions(+)
+ create mode 100644 Documentation/scheduler/schedutil.txt
+
+diff --git a/Documentation/scheduler/schedutil.txt b/Documentation/scheduler/schedutil.txt
+new file mode 100644
+index 000000000..78f6b91e2
+--- /dev/null
++++ b/Documentation/scheduler/schedutil.txt
+@@ -0,0 +1,169 @@
++
++
++NOTE; all this assumes a linear relation between frequency and work capacity,
++we know this is flawed, but it is the best workable approximation.
++
++
++PELT (Per Entity Load Tracking)
++-------------------------------
++
++With PELT we track some metrics across the various scheduler entities, from
++individual tasks to task-group slices to CPU runqueues. As the basis for this
++we use an Exponentially Weighted Moving Average (EWMA), each period (1024us)
++is decayed such that y^32 = 0.5. That is, the most recent 32ms contribute
++half, while the rest of history contribute the other half.
++
++Specifically:
++
++  ewma_sum(u) := u_0 + u_1*y + u_2*y^2 + ...
++
++  ewma(u) = ewma_sum(u) / ewma_sum(1)
++
++Since this is essentially a progression of an infinite geometric series, the
++results are composable, that is ewma(A) + ewma(B) = ewma(A+B). This property
++is key, since it gives the ability to recompose the averages when tasks move
++around.
++
++Note that blocked tasks still contribute to the aggregates (task-group slices
++and CPU runqueues), which reflects their expected contribution when they
++resume running.
++
++Using this we track 2 key metrics: 'running' and 'runnable'. 'Running'
++reflects the time an entity spends on the CPU, while 'runnable' reflects the
++time an entity spends on the runqueue. When there is only a single task these
++two metrics are the same, but once there is contention for the CPU 'running'
++will decrease to reflect the fraction of time each task spends on the CPU
++while 'runnable' will increase to reflect the amount of contention.
++
++For more detail see: kernel/sched/pelt.c
++
++
++Frequency- / CPU Invariance
++---------------------------
++
++Because consuming the CPU for 50% at 1GHz is not the same as consuming the CPU
++for 50% at 2GHz, nor is running 50% on a LITTLE CPU the same as running 50% on
++a big CPU, we allow architectures to scale the time delta with two ratios, one
++Dynamic Voltage and Frequency Scaling (DVFS) ratio and one microarch ratio.
++
++For simple DVFS architectures (where software is in full control) we trivially
++compute the ratio as:
++
++	    f_cur
++  r_dvfs := -----
++            f_max
++
++For more dynamic systems where the hardware is in control of DVFS we use
++hardware counters (Intel APERF/MPERF, ARMv8.4-AMU) to provide us this ratio.
++For Intel specifically, we use:
++
++	   APERF
++  f_cur := ----- * P0
++	   MPERF
++
++	     4C-turbo;	if available and turbo enabled
++  f_max := { 1C-turbo;	if turbo enabled
++	     P0;	otherwise
++
++                    f_cur
++  r_dvfs := min( 1, ----- )
++                    f_max
++
++We pick 4C turbo over 1C turbo to make it slightly more sustainable.
++
++r_cpu is determined as the ratio of highest performance level of the current
++CPU vs the highest performance level of any other CPU in the system.
++
++  r_tot = r_dvfs * r_cpu
++
++The result is that the above 'running' and 'runnable' metrics become invariant
++of DVFS and CPU type. IOW. we can transfer and compare them between CPUs.
++
++For more detail see:
++
++ - kernel/sched/pelt.h:update_rq_clock_pelt()
++ - arch/x86/kernel/smpboot.c:"APERF/MPERF frequency ratio computation."
++ - Documentation/scheduler/sched-capacity.rst:"1. CPU Capacity + 2. Task utilization"
++
++
++UTIL_EST / UTIL_EST_FASTUP
++--------------------------
++
++Because periodic tasks have their averages decayed while they sleep, even
++though when running their expected utilization will be the same, they suffer a
++(DVFS) ramp-up after they are running again.
++
++To alleviate this (a default enabled option) UTIL_EST drives an Infinite
++Impulse Response (IIR) EWMA with the 'running' value on dequeue -- when it is
++highest. A further default enabled option UTIL_EST_FASTUP modifies the IIR
++filter to instantly increase and only decay on decrease.
++
++A further runqueue wide sum (of runnable tasks) is maintained of:
++
++  util_est := \Sum_t max( t_running, t_util_est_ewma )
++
++For more detail see: kernel/sched/fair.c:util_est_dequeue()
++
++
++UCLAMP
++------
++
++It is possible to set effective u_min and u_max clamps on each CFS or RT task;
++the runqueue keeps an max aggregate of these clamps for all running tasks.
++
++For more detail see: include/uapi/linux/sched/types.h
++
++
++Schedutil / DVFS
++----------------
++
++Every time the scheduler load tracking is updated (task wakeup, task
++migration, time progression) we call out to schedutil to update the hardware
++DVFS state.
++
++The basis is the CPU runqueue's 'running' metric, which per the above it is
++the frequency invariant utilization estimate of the CPU. From this we compute
++a desired frequency like:
++
++             max( running, util_est );	if UTIL_EST
++  u_cfs := { running;			otherwise
++
++               clamp( u_cfs + u_rt , u_min, u_max );	if UCLAMP_TASK
++  u_clamp := { u_cfs + u_rt;				otherwise
++
++  u := u_clamp + u_irq + u_dl;		[approx. see source for more detail]
++
++  f_des := min( f_max, 1.25 u * f_max )
++
++XXX IO-wait; when the update is due to a task wakeup from IO-completion we
++boost 'u' above.
++
++This frequency is then used to select a P-state/OPP or directly munged into a
++CPPC style request to the hardware.
++
++XXX: deadline tasks (Sporadic Task Model) allows us to calculate a hard f_min
++required to satisfy the workload.
++
++Because these callbacks are directly from the scheduler, the DVFS hardware
++interaction should be 'fast' and non-blocking. Schedutil supports
++rate-limiting DVFS requests for when hardware interaction is slow and
++expensive, this reduces effectiveness.
++
++For more information see: kernel/sched/cpufreq_schedutil.c
++
++
++NOTES
++-----
++
++ - On low-load scenarios, where DVFS is most relevant, the 'running' numbers
++   will closely reflect utilization.
++
++ - In saturated scenarios task movement will cause some transient dips,
++   suppose we have a CPU saturated with 4 tasks, then when we migrate a task
++   to an idle CPU, the old CPU will have a 'running' value of 0.75 while the
++   new CPU will gain 0.25. This is inevitable and time progression will
++   correct this. XXX do we still guarantee f_max due to no idle-time?
++
++ - Much of the above is about avoiding DVFS dips, and independent DVFS domains
++   having to re-learn / ramp-up when load shifts.
++
+-- 
+2.30.0
+
+From 8c1f560c1ea3f19e22ba356f62680d9d449c9ec2 Mon Sep 17 00:00:00 2001
+From: Xuewen Yan <xuewen.yan@unisoc.com>
+Date: Fri, 18 Dec 2020 17:27:52 +0800
+Subject: [PATCH] sched/fair: Avoid stale CPU util_est value for schedutil in
+ task dequeue
+
+CPU (root cfs_rq) estimated utilization (util_est) is currently used in
+dequeue_task_fair() to drive frequency selection before it is updated.
+
+with:
+
+CPU_util        : rq->cfs.avg.util_avg
+CPU_util_est    : rq->cfs.avg.util_est
+CPU_utilization : max(CPU_util, CPU_util_est)
+task_util       : p->se.avg.util_avg
+task_util_est   : p->se.avg.util_est
+
+dequeue_task_fair():
+
+    /* (1) CPU_util and task_util update + inform schedutil about
+           CPU_utilization changes */
+    for_each_sched_entity() /* 2 loops */
+        (dequeue_entity() ->) update_load_avg() -> cfs_rq_util_change()
+         -> cpufreq_update_util() ->...-> sugov_update_[shared\|single]
+         -> sugov_get_util() -> cpu_util_cfs()
+
+    /* (2) CPU_util_est and task_util_est update */
+    util_est_dequeue()
+
+cpu_util_cfs() uses CPU_utilization which could lead to a false (too
+high) utilization value for schedutil in task ramp-down or ramp-up
+scenarios during task dequeue.
+
+To mitigate the issue split the util_est update (2) into:
+
+ (A) CPU_util_est update in util_est_dequeue()
+ (B) task_util_est update in util_est_update()
+
+Place (A) before (1) and keep (B) where (2) is. The latter is necessary
+since (B) relies on task_util update in (1).
+
+Fixes: 7f65ea42eb00 ("sched/fair: Add util_est on top of PELT")
+Signed-off-by: Xuewen Yan <xuewen.yan@unisoc.com>
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Reviewed-by: Dietmar Eggemann <dietmar.eggemann@arm.com>
+Reviewed-by: Vincent Guittot <vincent.guittot@linaro.org>
+Link: https://lkml.kernel.org/r/1608283672-18240-1-git-send-email-xuewen.yan94@gmail.com
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ kernel/sched/fair.c | 43 ++++++++++++++++++++++++++++---------------
+ 1 file changed, 28 insertions(+), 15 deletions(-)
+
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index 389cb5865..40d3ebfb5 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -3943,6 +3943,22 @@ static inline void util_est_enqueue(struct cfs_rq *cfs_rq,
+ 	trace_sched_util_est_cfs_tp(cfs_rq);
+ }
+ 
++static inline void util_est_dequeue(struct cfs_rq *cfs_rq,
++				    struct task_struct *p)
++{
++	unsigned int enqueued;
++
++	if (!sched_feat(UTIL_EST))
++		return;
++
++	/* Update root cfs_rq's estimated utilization */
++	enqueued  = cfs_rq->avg.util_est.enqueued;
++	enqueued -= min_t(unsigned int, enqueued, _task_util_est(p));
++	WRITE_ONCE(cfs_rq->avg.util_est.enqueued, enqueued);
++
++	trace_sched_util_est_cfs_tp(cfs_rq);
++}
++
+ /*
+  * Check if a (signed) value is within a specified (unsigned) margin,
+  * based on the observation that:
+@@ -3956,23 +3972,16 @@ static inline bool within_margin(int value, int margin)
+ 	return ((unsigned int)(value + margin - 1) < (2 * margin - 1));
+ }
+ 
+-static void
+-util_est_dequeue(struct cfs_rq *cfs_rq, struct task_struct *p, bool task_sleep)
++static inline void util_est_update(struct cfs_rq *cfs_rq,
++				   struct task_struct *p,
++				   bool task_sleep)
+ {
+ 	long last_ewma_diff;
+ 	struct util_est ue;
+-	int cpu;
+ 
+ 	if (!sched_feat(UTIL_EST))
+ 		return;
+ 
+-	/* Update root cfs_rq's estimated utilization */
+-	ue.enqueued  = cfs_rq->avg.util_est.enqueued;
+-	ue.enqueued -= min_t(unsigned int, ue.enqueued, _task_util_est(p));
+-	WRITE_ONCE(cfs_rq->avg.util_est.enqueued, ue.enqueued);
+-
+-	trace_sched_util_est_cfs_tp(cfs_rq);
+-
+ 	/*
+ 	 * Skip update of task's estimated utilization when the task has not
+ 	 * yet completed an activation, e.g. being migrated.
+@@ -4012,8 +4021,7 @@ util_est_dequeue(struct cfs_rq *cfs_rq, struct task_struct *p, bool task_sleep)
+ 	 * To avoid overestimation of actual task utilization, skip updates if
+ 	 * we cannot grant there is idle time in this CPU.
+ 	 */
+-	cpu = cpu_of(rq_of(cfs_rq));
+-	if (task_util(p) > capacity_orig_of(cpu))
++	if (task_util(p) > capacity_orig_of(cpu_of(rq_of(cfs_rq))))
+ 		return;
+ 
+ 	/*
+@@ -4096,8 +4104,11 @@ static inline void
+ util_est_enqueue(struct cfs_rq *cfs_rq, struct task_struct *p) {}
+ 
+ static inline void
+-util_est_dequeue(struct cfs_rq *cfs_rq, struct task_struct *p,
+-		 bool task_sleep) {}
++util_est_dequeue(struct cfs_rq *cfs_rq, struct task_struct *p) {}
++
++static inline void
++util_est_update(struct cfs_rq *cfs_rq, struct task_struct *p,
++		bool task_sleep) {}
+ static inline void update_misfit_status(struct task_struct *p, struct rq *rq) {}
+ 
+ #endif /* CONFIG_SMP */
+@@ -5609,6 +5620,8 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+ 	int idle_h_nr_running = task_has_idle_policy(p);
+ 	bool was_sched_idle = sched_idle_rq(rq);
+ 
++	util_est_dequeue(&rq->cfs, p);
++
+ 	for_each_sched_entity(se) {
+ 		cfs_rq = cfs_rq_of(se);
+ 		dequeue_entity(cfs_rq, se, flags);
+@@ -5659,7 +5672,7 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+ 		rq->next_balance = jiffies;
+ 
+ dequeue_throttle:
+-	util_est_dequeue(&rq->cfs, p, task_sleep);
++	util_est_update(&rq->cfs, p, task_sleep);
+ 	hrtick_update(rq);
+ }
+ 
+-- 
+2.30.0
+
+From fc488ffd4297f661b3e9d7450dcdb9089a53df7c Mon Sep 17 00:00:00 2001
+From: Vincent Guittot <vincent.guittot@linaro.org>
+Date: Thu, 7 Jan 2021 11:33:23 +0100
+Subject: [PATCH] sched/fair: Skip idle cfs_rq
+
+Don't waste time checking whether an idle cfs_rq could be the busiest
+queue. Furthermore, this can end up selecting a cfs_rq with a high load
+but being idle in case of migrate_load.
+
+Signed-off-by: Vincent Guittot <vincent.guittot@linaro.org>
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Reviewed-by: Valentin Schneider <valentin.schneider@arm.com>
+Acked-by: Mel Gorman <mgorman@suse.de>
+Link: https://lkml.kernel.org/r/20210107103325.30851-2-vincent.guittot@linaro.org
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ kernel/sched/fair.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index 40d3ebfb5..13de7aede 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -9402,8 +9402,11 @@ static struct rq *find_busiest_queue(struct lb_env *env,
+ 		if (rt > env->fbq_type)
+ 			continue;
+ 
+-		capacity = capacity_of(i);
+ 		nr_running = rq->cfs.h_nr_running;
++		if (!nr_running)
++			continue;
++
++		capacity = capacity_of(i);
+ 
+ 		/*
+ 		 * For ASYM_CPUCAPACITY domains, don't pick a CPU that could
+-- 
+2.30.0
+
+From 8a41dfcda7a32ed4435c00d98a9dc7156b08b671 Mon Sep 17 00:00:00 2001
+From: Vincent Guittot <vincent.guittot@linaro.org>
+Date: Thu, 7 Jan 2021 11:33:24 +0100
+Subject: [PATCH] sched/fair: Don't set LBF_ALL_PINNED unnecessarily
+
+Setting LBF_ALL_PINNED during active load balance is only valid when there
+is only 1 running task on the rq otherwise this ends up increasing the
+balance interval whereas other tasks could migrate after the next interval
+once they become cache-cold as an example.
+
+LBF_ALL_PINNED flag is now always set it by default. It is then cleared
+when we find one task that can be pulled when calling detach_tasks() or
+during active migration.
+
+Signed-off-by: Vincent Guittot <vincent.guittot@linaro.org>
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Reviewed-by: Valentin Schneider <valentin.schneider@arm.com>
+Acked-by: Mel Gorman <mgorman@suse.de>
+Link: https://lkml.kernel.org/r/20210107103325.30851-3-vincent.guittot@linaro.org
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ kernel/sched/fair.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index 13de7aede..48f99c8a5 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -9639,6 +9639,8 @@ static int load_balance(int this_cpu, struct rq *this_rq,
+ 	env.src_rq = busiest;
+ 
+ 	ld_moved = 0;
++	/* Clear this flag as soon as we find a pullable task */
++	env.flags |= LBF_ALL_PINNED;
+ 	if (busiest->nr_running > 1) {
+ 		/*
+ 		 * Attempt to move tasks. If find_busiest_group has found
+@@ -9646,7 +9648,6 @@ static int load_balance(int this_cpu, struct rq *this_rq,
+ 		 * still unbalanced. ld_moved simply stays zero, so it is
+ 		 * correctly treated as an imbalance.
+ 		 */
+-		env.flags |= LBF_ALL_PINNED;
+ 		env.loop_max  = min(sysctl_sched_nr_migrate, busiest->nr_running);
+ 
+ more_balance:
+@@ -9772,10 +9773,12 @@ static int load_balance(int this_cpu, struct rq *this_rq,
+ 			if (!cpumask_test_cpu(this_cpu, busiest->curr->cpus_ptr)) {
+ 				raw_spin_unlock_irqrestore(&busiest->lock,
+ 							    flags);
+-				env.flags |= LBF_ALL_PINNED;
+ 				goto out_one_pinned;
+ 			}
+ 
++			/* Record that we found at least one task that could run on this_cpu */
++			env.flags &= ~LBF_ALL_PINNED;
++
+ 			/*
+ 			 * ->active_balance synchronizes accesses to
+ 			 * ->active_balance_work.  Once set, it's cleared
+-- 
+2.30.0
+
+From e9b9734b74656abb585a7f6fabf1d30ce00e51ea Mon Sep 17 00:00:00 2001
+From: Vincent Guittot <vincent.guittot@linaro.org>
+Date: Thu, 7 Jan 2021 11:33:25 +0100
+Subject: [PATCH] sched/fair: Reduce cases for active balance
+
+Active balance is triggered for a number of voluntary cases like misfit
+or pinned tasks cases but also after that a number of load balance
+attempts failed to migrate a task. There is no need to use active load
+balance when the group is overloaded because an overloaded state means
+that there is at least one waiting task. Nevertheless, the waiting task
+is not selected and detached until the threshold becomes higher than its
+load. This threshold increases with the number of failed lb (see the
+condition if ((load >> env->sd->nr_balance_failed) > env->imbalance) in
+detach_tasks()) and the waiting task will end up to be selected after a
+number of attempts.
+
+Signed-off-by: Vincent Guittot <vincent.guittot@linaro.org>
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Reviewed-by: Valentin Schneider <valentin.schneider@arm.com>
+Acked-by: Mel Gorman <mgorman@suse.de>
+Link: https://lkml.kernel.org/r/20210107103325.30851-4-vincent.guittot@linaro.org
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ kernel/sched/fair.c | 45 +++++++++++++++++++++++----------------------
+ 1 file changed, 23 insertions(+), 22 deletions(-)
+
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index 48f99c8a5..53802b77c 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -9512,13 +9512,32 @@ asym_active_balance(struct lb_env *env)
+ }
+ 
+ static inline bool
+-voluntary_active_balance(struct lb_env *env)
++imbalanced_active_balance(struct lb_env *env)
++{
++	struct sched_domain *sd = env->sd;
++
++	/*
++	 * The imbalanced case includes the case of pinned tasks preventing a fair
++	 * distribution of the load on the system but also the even distribution of the
++	 * threads on a system with spare capacity
++	 */
++	if ((env->migration_type == migrate_task) &&
++	    (sd->nr_balance_failed > sd->cache_nice_tries+2))
++		return 1;
++
++	return 0;
++}
++
++static int need_active_balance(struct lb_env *env)
+ {
+ 	struct sched_domain *sd = env->sd;
+ 
+ 	if (asym_active_balance(env))
+ 		return 1;
+ 
++	if (imbalanced_active_balance(env))
++		return 1;
++
+ 	/*
+ 	 * The dst_cpu is idle and the src_cpu CPU has only 1 CFS task.
+ 	 * It's worth migrating the task if the src_cpu's capacity is reduced
+@@ -9538,16 +9557,6 @@ voluntary_active_balance(struct lb_env *env)
+ 	return 0;
+ }
+ 
+-static int need_active_balance(struct lb_env *env)
+-{
+-	struct sched_domain *sd = env->sd;
+-
+-	if (voluntary_active_balance(env))
+-		return 1;
+-
+-	return unlikely(sd->nr_balance_failed > sd->cache_nice_tries+2);
+-}
+-
+ static int active_load_balance_cpu_stop(void *data);
+ 
+ static int should_we_balance(struct lb_env *env)
+@@ -9800,21 +9809,13 @@ static int load_balance(int this_cpu, struct rq *this_rq,
+ 			/* We've kicked active balancing, force task migration. */
+ 			sd->nr_balance_failed = sd->cache_nice_tries+1;
+ 		}
+-	} else
++	} else {
+ 		sd->nr_balance_failed = 0;
++	}
+ 
+-	if (likely(!active_balance) || voluntary_active_balance(&env)) {
++	if (likely(!active_balance) || need_active_balance(&env)) {
+ 		/* We were unbalanced, so reset the balancing interval */
+ 		sd->balance_interval = sd->min_interval;
+-	} else {
+-		/*
+-		 * If we've begun active balancing, start to back off. This
+-		 * case may not be covered by the all_pinned logic if there
+-		 * is only 1 task on the busy runqueue (because we don't call
+-		 * detach_tasks).
+-		 */
+-		if (sd->balance_interval < sd->max_interval)
+-			sd->balance_interval *= 2;
+ 	}
+ 
+ 	goto out;
+-- 
+2.30.0
+
+From 65bcf072e20ed7597caa902f170f293662b0af3c Mon Sep 17 00:00:00 2001
+From: Hui Su <sh_def@163.com>
+Date: Sat, 31 Oct 2020 01:32:23 +0800
+Subject: [PATCH] sched: Use task_current() instead of 'rq->curr == p'
+
+Use the task_current() function where appropriate.
+
+No functional change.
+
+Signed-off-by: Hui Su <sh_def@163.com>
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Reviewed-by: Steven Rostedt (VMware) <rostedt@goodmis.org>
+Link: https://lkml.kernel.org/r/20201030173223.GA52339@rlk
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ kernel/sched/deadline.c | 2 +-
+ kernel/sched/debug.c    | 2 +-
+ kernel/sched/fair.c     | 6 +++---
+ kernel/sched/rt.c       | 2 +-
+ 4 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/kernel/sched/deadline.c b/kernel/sched/deadline.c
+index 75686c6d4..5421782fe 100644
+--- a/kernel/sched/deadline.c
++++ b/kernel/sched/deadline.c
+@@ -2514,7 +2514,7 @@ static void switched_to_dl(struct rq *rq, struct task_struct *p)
+ static void prio_changed_dl(struct rq *rq, struct task_struct *p,
+ 			    int oldprio)
+ {
+-	if (task_on_rq_queued(p) || rq->curr == p) {
++	if (task_on_rq_queued(p) || task_current(rq, p)) {
+ #ifdef CONFIG_SMP
+ 		/*
+ 		 * This might be too much, but unfortunately
+diff --git a/kernel/sched/debug.c b/kernel/sched/debug.c
+index 235792158..486f403a7 100644
+--- a/kernel/sched/debug.c
++++ b/kernel/sched/debug.c
+@@ -486,7 +486,7 @@ static char *task_group_path(struct task_group *tg)
+ static void
+ print_task(struct seq_file *m, struct rq *rq, struct task_struct *p)
+ {
+-	if (rq->curr == p)
++	if (task_current(rq, p))
+ 		SEQ_printf(m, ">R");
+ 	else
+ 		SEQ_printf(m, " %c", task_state_to_char(p));
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index 53802b77c..197a51473 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -5430,7 +5430,7 @@ static void hrtick_start_fair(struct rq *rq, struct task_struct *p)
+ 		s64 delta = slice - ran;
+ 
+ 		if (delta < 0) {
+-			if (rq->curr == p)
++			if (task_current(rq, p))
+ 				resched_curr(rq);
+ 			return;
+ 		}
+@@ -10829,7 +10829,7 @@ prio_changed_fair(struct rq *rq, struct task_struct *p, int oldprio)
+ 	 * our priority decreased, or if we are not currently running on
+ 	 * this runqueue and our priority is higher than the current's
+ 	 */
+-	if (rq->curr == p) {
++	if (task_current(rq, p)) {
+ 		if (p->prio > oldprio)
+ 			resched_curr(rq);
+ 	} else
+@@ -10962,7 +10962,7 @@ static void switched_to_fair(struct rq *rq, struct task_struct *p)
+ 		 * kick off the schedule if running, otherwise just see
+ 		 * if we can still preempt the current task.
+ 		 */
+-		if (rq->curr == p)
++		if (task_current(rq, p))
+ 			resched_curr(rq);
+ 		else
+ 			check_preempt_curr(rq, p, 0);
+diff --git a/kernel/sched/rt.c b/kernel/sched/rt.c
+index dbe4629cf..8f720b71d 100644
+--- a/kernel/sched/rt.c
++++ b/kernel/sched/rt.c
+@@ -2357,7 +2357,7 @@ prio_changed_rt(struct rq *rq, struct task_struct *p, int oldprio)
+ 	if (!task_on_rq_queued(p))
+ 		return;
+ 
+-	if (rq->curr == p) {
++	if (task_current(rq, p)) {
+ #ifdef CONFIG_SMP
+ 		/*
+ 		 * If our priority decreases while running, we
+-- 
+2.30.0
+

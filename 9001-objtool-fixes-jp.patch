@@ -1,4 +1,4 @@
-From 1f02defb4b79984edb18b56a245ce32beb167d48 Mon Sep 17 00:00:00 2001
+From c6bd154e55739c332c21ca4a91a66787cc3e104c Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Fri, 13 Nov 2020 14:28:31 -0600
 Subject: [PATCH] objtool: Fix seg fault in BT_FUNC() with fake jump
@@ -21,10 +21,10 @@ Signed-off-by: torvic9 <torvic9@mailbox.org>
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/tools/objtool/check.c b/tools/objtool/check.c
-index c6ab44543..76fb1923a 100644
+index 5f8d3eed7..ed26c22c8 100644
 --- a/tools/objtool/check.c
 +++ b/tools/objtool/check.c
-@@ -1010,7 +1010,7 @@ static int handle_group_alt(struct objtool_file *file,
+@@ -1017,7 +1017,7 @@ static int handle_group_alt(struct objtool_file *file,
  		INIT_LIST_HEAD(&fake_jump->stack_ops);
  		init_cfi_state(&fake_jump->cfi);
  
@@ -36,7 +36,7 @@ index c6ab44543..76fb1923a 100644
 -- 
 2.30.0
 
-From b82402fa521173dc0d31529f287ab4a328314a5e Mon Sep 17 00:00:00 2001
+From 90a81eb41741429562d2fdd5bf1e23c416b1fc6a Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Mon, 16 Nov 2020 14:11:08 -0600
 Subject: [PATCH] objtool: Fix error handling for STD/CLD warnings
@@ -52,10 +52,10 @@ Signed-off-by: torvic9 <torvic9@mailbox.org>
  1 file changed, 6 insertions(+), 2 deletions(-)
 
 diff --git a/tools/objtool/check.c b/tools/objtool/check.c
-index 76fb1923a..9aaa8ed98 100644
+index ed26c22c8..93c3937d1 100644
 --- a/tools/objtool/check.c
 +++ b/tools/objtool/check.c
-@@ -2585,15 +2585,19 @@ static int validate_branch(struct objtool_file *file, struct symbol *func,
+@@ -2592,15 +2592,19 @@ static int validate_branch(struct objtool_file *file, struct symbol *func,
  			break;
  
  		case INSN_STD:
@@ -80,7 +80,7 @@ index 76fb1923a..9aaa8ed98 100644
 -- 
 2.30.0
 
-From b3dfca472514e07f1b97a1b7b5c86fb56af2ff06 Mon Sep 17 00:00:00 2001
+From 1d835370d4bfa899f6d6819898ac27f06296dc87 Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Fri, 20 Nov 2020 11:23:39 -0600
 Subject: [PATCH] objtool: Fix retpoline detection in asm code
@@ -115,10 +115,10 @@ index fd4af88c0..151b13d0a 100644
  
  /*
 diff --git a/tools/objtool/check.c b/tools/objtool/check.c
-index 9aaa8ed98..81a6f9cc2 100644
+index 93c3937d1..00969eac5 100644
 --- a/tools/objtool/check.c
 +++ b/tools/objtool/check.c
-@@ -782,7 +782,8 @@ static int add_jump_destinations(struct objtool_file *file)
+@@ -789,7 +789,8 @@ static int add_jump_destinations(struct objtool_file *file)
  			dest_sec = reloc->sym->sec;
  			dest_off = reloc->sym->sym.st_value +
  				   arch_dest_reloc_offset(reloc->addend);
@@ -153,7 +153,7 @@ index 5ec00a4b8..2804848e6 100644
 -- 
 2.30.0
 
-From 8145ea268f1663483033e879ccbce554bdde4543 Mon Sep 17 00:00:00 2001
+From 93bcd631c50ea58faad9edee4ad675c57bb0f934 Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Mon, 16 Nov 2020 21:21:44 -0600
 Subject: [PATCH] objtool: Fix ".cold" section suffix check for newer versions
@@ -174,10 +174,10 @@ Signed-off-by: torvic9 <torvic9@mailbox.org>
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/tools/objtool/check.c b/tools/objtool/check.c
-index 81a6f9cc2..059c90f76 100644
+index 00969eac5..12d48db41 100644
 --- a/tools/objtool/check.c
 +++ b/tools/objtool/check.c
-@@ -843,8 +843,8 @@ static int add_jump_destinations(struct objtool_file *file)
+@@ -850,8 +850,8 @@ static int add_jump_destinations(struct objtool_file *file)
  			 * case where the parent function's only reference to a
  			 * subfunction is through a jump table.
  			 */
@@ -191,7 +191,7 @@ index 81a6f9cc2..059c90f76 100644
 -- 
 2.30.0
 
-From 24d6ce8cd8f6491bc4f647f945e43b6ae291c918 Mon Sep 17 00:00:00 2001
+From c20f4a7239f3b26b3f2f7735e6674adefcb46e7f Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Wed, 18 Nov 2020 11:46:33 -0600
 Subject: [PATCH] objtool: Support retpoline jump detection for vmlinux.o
@@ -213,10 +213,10 @@ Signed-off-by: torvic9 <torvic9@mailbox.org>
  1 file changed, 4 insertions(+), 4 deletions(-)
 
 diff --git a/tools/objtool/check.c b/tools/objtool/check.c
-index 059c90f76..abb525417 100644
+index 12d48db41..b1327789d 100644
 --- a/tools/objtool/check.c
 +++ b/tools/objtool/check.c
-@@ -778,10 +778,6 @@ static int add_jump_destinations(struct objtool_file *file)
+@@ -785,10 +785,6 @@ static int add_jump_destinations(struct objtool_file *file)
  		} else if (reloc->sym->type == STT_SECTION) {
  			dest_sec = reloc->sym->sec;
  			dest_off = arch_dest_reloc_offset(reloc->addend);
@@ -227,7 +227,7 @@ index 059c90f76..abb525417 100644
  		} else if (!strncmp(reloc->sym->name, "__x86_indirect_thunk_", 21) ||
  			   !strncmp(reloc->sym->name, "__x86_retpoline_", 16)) {
  			/*
-@@ -795,6 +791,10 @@ static int add_jump_destinations(struct objtool_file *file)
+@@ -802,6 +798,10 @@ static int add_jump_destinations(struct objtool_file *file)
  
  			insn->retpoline_safe = true;
  			continue;
@@ -241,7 +241,7 @@ index 059c90f76..abb525417 100644
 -- 
 2.30.0
 
-From 0d6c8816cf91ec66b83e40dff5f7da9a67a303eb Mon Sep 17 00:00:00 2001
+From 8c06a9137fb88d62d0af7d9d358317919ba8a001 Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Fri, 20 Nov 2020 12:08:40 -0600
 Subject: [PATCH] x86/ftrace: Add UNWIND_HINT_FUNC annotation for ftrace_stub
@@ -250,6 +250,7 @@ Prevent an unreachable objtool warning after the sibling call detection
 gets improved.  ftrace_stub() is basically a function, annotate it as
 such.
 
+Cc: Steven Rostedt <rostedt@goodmis.org>
 Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
 Signed-off-by: torvic9 <torvic9@mailbox.org>
 ---
@@ -257,10 +258,10 @@ Signed-off-by: torvic9 <torvic9@mailbox.org>
  1 file changed, 1 insertion(+)
 
 diff --git a/arch/x86/kernel/ftrace_64.S b/arch/x86/kernel/ftrace_64.S
-index ac3d5f22f..416738916 100644
+index 0d54099c2..58d125ed9 100644
 --- a/arch/x86/kernel/ftrace_64.S
 +++ b/arch/x86/kernel/ftrace_64.S
-@@ -173,6 +173,7 @@ SYM_INNER_LABEL(ftrace_graph_call, SYM_L_GLOBAL)
+@@ -184,6 +184,7 @@ SYM_INNER_LABEL(ftrace_graph_call, SYM_L_GLOBAL)
   * It is also used to copy the retq for trampolines.
   */
  SYM_INNER_LABEL_ALIGN(ftrace_stub, SYM_L_WEAK)
@@ -271,7 +272,7 @@ index ac3d5f22f..416738916 100644
 -- 
 2.30.0
 
-From 68259d951f1a4a259d7b4c604477b7252ada74f8 Mon Sep 17 00:00:00 2001
+From 3b25ec550d2c8368b94915bab193e10d1ef11f42 Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Thu, 19 Nov 2020 21:20:49 -0600
 Subject: [PATCH] objtool: Assume only ELF functions do sibling calls
@@ -296,7 +297,7 @@ Signed-off-by: torvic9 <torvic9@mailbox.org>
  1 file changed, 22 insertions(+), 14 deletions(-)
 
 diff --git a/tools/objtool/check.c b/tools/objtool/check.c
-index abb525417..158ff2277 100644
+index b1327789d..d833855f3 100644
 --- a/tools/objtool/check.c
 +++ b/tools/objtool/check.c
 @@ -111,15 +111,20 @@ static struct instruction *prev_insn_same_sym(struct objtool_file *file,
@@ -324,7 +325,7 @@ index abb525417..158ff2277 100644
  }
  
  /*
-@@ -771,7 +776,7 @@ static int add_jump_destinations(struct objtool_file *file)
+@@ -778,7 +783,7 @@ static int add_jump_destinations(struct objtool_file *file)
  			continue;
  
  		reloc = find_reloc_by_dest_range(file->elf, insn->sec,
@@ -333,7 +334,7 @@ index abb525417..158ff2277 100644
  		if (!reloc) {
  			dest_sec = insn->sec;
  			dest_off = arch_jump_destination(insn);
-@@ -791,18 +796,21 @@ static int add_jump_destinations(struct objtool_file *file)
+@@ -798,18 +803,21 @@ static int add_jump_destinations(struct objtool_file *file)
  
  			insn->retpoline_safe = true;
  			continue;
@@ -361,7 +362,7 @@ index abb525417..158ff2277 100644
  		}
  
  		insn->jump_dest = find_insn(file, dest_sec, dest_off);
-@@ -851,7 +859,7 @@ static int add_jump_destinations(struct objtool_file *file)
+@@ -858,7 +866,7 @@ static int add_jump_destinations(struct objtool_file *file)
  			} else if (insn->jump_dest->func->pfunc != insn->func->pfunc &&
  				   insn->jump_dest->offset == insn->jump_dest->func->offset) {
  
@@ -370,7 +371,7 @@ index abb525417..158ff2277 100644
  				insn->call_dest = insn->jump_dest->func;
  				if (insn->call_dest->static_call_tramp) {
  					list_add_tail(&insn->static_call_node,
-@@ -2521,7 +2529,7 @@ static int validate_branch(struct objtool_file *file, struct symbol *func,
+@@ -2528,7 +2536,7 @@ static int validate_branch(struct objtool_file *file, struct symbol *func,
  
  		case INSN_JUMP_CONDITIONAL:
  		case INSN_JUMP_UNCONDITIONAL:
@@ -379,7 +380,7 @@ index abb525417..158ff2277 100644
  				ret = validate_sibling_call(insn, &state);
  				if (ret)
  					return ret;
-@@ -2543,7 +2551,7 @@ static int validate_branch(struct objtool_file *file, struct symbol *func,
+@@ -2550,7 +2558,7 @@ static int validate_branch(struct objtool_file *file, struct symbol *func,
  
  		case INSN_JUMP_DYNAMIC:
  		case INSN_JUMP_DYNAMIC_CONDITIONAL:
@@ -391,7 +392,7 @@ index abb525417..158ff2277 100644
 -- 
 2.30.0
 
-From 56d6a7aee8b11cad89102d709d5d30d1b27e5a8a Mon Sep 17 00:00:00 2001
+From 61e662a0fff06d1aa05343218d89756bd16b166a Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Thu, 19 Nov 2020 11:29:49 -0600
 Subject: [PATCH] objtool: Add asm version of STACK_FRAME_NON_STANDARD
@@ -463,7 +464,7 @@ index 577f51436..add1c6eb1 100644
 -- 
 2.30.0
 
-From 6016e8da8c3d2bb90008e61b15b697817f84e67b Mon Sep 17 00:00:00 2001
+From 86820e8b33d36ee9c28adcf3d2525f0cd05fb0ad Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Thu, 19 Nov 2020 18:56:51 -0600
 Subject: [PATCH] objtool: Combine UNWIND_HINT_RET_OFFSET and UNWIND_HINT_FUNC
@@ -521,10 +522,10 @@ index 664d4610d..8e574c0af 100644
  
  #endif /* __ASSEMBLY__ */
 diff --git a/arch/x86/kernel/ftrace_64.S b/arch/x86/kernel/ftrace_64.S
-index 416738916..eea49da97 100644
+index 58d125ed9..1bf568d90 100644
 --- a/arch/x86/kernel/ftrace_64.S
 +++ b/arch/x86/kernel/ftrace_64.S
-@@ -266,7 +266,7 @@ SYM_INNER_LABEL(ftrace_regs_caller_end, SYM_L_GLOBAL)
+@@ -277,7 +277,7 @@ SYM_INNER_LABEL(ftrace_regs_caller_end, SYM_L_GLOBAL)
  	restore_mcount_regs 8
  	/* Restore flags */
  	popfq
@@ -602,10 +603,10 @@ index cde9c36e4..6f5a45754 100644
  
  const char *arch_nop_insn(int len)
 diff --git a/tools/objtool/check.c b/tools/objtool/check.c
-index 158ff2277..1cb3e6155 100644
+index d833855f3..6636f4fd6 100644
 --- a/tools/objtool/check.c
 +++ b/tools/objtool/check.c
-@@ -1393,13 +1393,20 @@ static int add_jump_table_alts(struct objtool_file *file)
+@@ -1400,13 +1400,20 @@ static int add_jump_table_alts(struct objtool_file *file)
  	return 0;
  }
  
@@ -627,7 +628,7 @@ index 158ff2277..1cb3e6155 100644
  	int i;
  
  	sec = find_section_by_name(file->elf, ".discard.unwind_hints");
-@@ -1434,22 +1441,20 @@ static int read_unwind_hints(struct objtool_file *file)
+@@ -1441,22 +1448,20 @@ static int read_unwind_hints(struct objtool_file *file)
  			return -1;
  		}
  
@@ -654,7 +655,7 @@ index 158ff2277..1cb3e6155 100644
  		insn->cfi.type = hint->type;
  		insn->cfi.end = hint->end;
  	}
-@@ -1705,27 +1710,18 @@ static bool is_fentry_call(struct instruction *insn)
+@@ -1712,27 +1717,18 @@ static bool is_fentry_call(struct instruction *insn)
  
  static bool has_modified_stack_frame(struct instruction *insn, struct insn_state *state)
  {
@@ -684,7 +685,7 @@ index 158ff2277..1cb3e6155 100644
  	for (i = 0; i < CFI_NUM_REGS; i++) {
  		if (cfi->regs[i].base != initial_func_cfi.regs[i].base ||
  		    cfi->regs[i].offset != initial_func_cfi.regs[i].offset)
-@@ -2817,10 +2813,7 @@ static int validate_section(struct objtool_file *file, struct section *sec)
+@@ -2824,10 +2820,7 @@ static int validate_section(struct objtool_file *file, struct section *sec)
  			continue;
  
  		init_insn_state(&state, sec);
@@ -711,7 +712,7 @@ index 2804848e6..4615ca210 100644
 -- 
 2.30.0
 
-From 3548319e21b9af1fa642580cb11c7e0cbe79ced1 Mon Sep 17 00:00:00 2001
+From a2df2ed5b5ea0116f4d9ec33f7d74d221a288543 Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Thu, 19 Nov 2020 17:29:36 -0600
 Subject: [PATCH] objtool: Add xen_start_kernel() to noreturn list
@@ -726,7 +727,7 @@ Signed-off-by: torvic9 <torvic9@mailbox.org>
  1 file changed, 1 insertion(+)
 
 diff --git a/tools/objtool/check.c b/tools/objtool/check.c
-index 1cb3e6155..04f0a7412 100644
+index 6636f4fd6..a430eaacd 100644
 --- a/tools/objtool/check.c
 +++ b/tools/objtool/check.c
 @@ -161,6 +161,7 @@ static bool __dead_end_function(struct objtool_file *file, struct symbol *func,
@@ -740,7 +741,223 @@ index 1cb3e6155..04f0a7412 100644
 -- 
 2.30.0
 
-From 705e18481ed953638b533ef17f6eb4418e579c2f Mon Sep 17 00:00:00 2001
+From 5fb6c162faddf66defcf89f9f22bd63fa6621dca Mon Sep 17 00:00:00 2001
+From: Josh Poimboeuf <jpoimboe@redhat.com>
+Date: Thu, 14 Jan 2021 12:48:09 -0600
+Subject: [PATCH] objtool: Move unsuffixed symbol conversion to a helper
+ function
+
+This logic will also be needed for the CONFIG_CFI_CLANG support.
+
+Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ tools/objtool/elf.c | 60 ++++++++++++++++++++++++++++-----------------
+ 1 file changed, 37 insertions(+), 23 deletions(-)
+
+diff --git a/tools/objtool/elf.c b/tools/objtool/elf.c
+index be89c741b..6d248a19e 100644
+--- a/tools/objtool/elf.c
++++ b/tools/objtool/elf.c
+@@ -262,6 +262,38 @@ struct reloc *find_reloc_by_dest(const struct elf *elf, struct section *sec, uns
+ 	return find_reloc_by_dest_range(elf, sec, offset, 1);
+ }
+ 
++static int find_unsuffixed_func(const struct elf *elf, struct symbol *sym,
++				const char *suffix, struct symbol **func)
++{
++	char name[MAX_NAME_LEN + 1];
++	const char *loc;
++	size_t len;
++
++	*func = NULL;
++
++	loc = strstr(sym->name, suffix);
++	if (!loc)
++		return 0;
++
++	len = loc - sym->name;
++	if (len > MAX_NAME_LEN) {
++		WARN("%s(): unsuffixed function name exceeds maximum length of %d characters",
++		     sym->name, MAX_NAME_LEN);
++		return -1;
++	}
++
++	strncpy(name, sym->name, len);
++	name[len] = '\0';
++
++	*func = find_symbol_by_name(elf, name);
++	if (!*func || (*func)->type != STT_FUNC) {
++		WARN("%s(): can't find unsuffixed function", sym->name);
++		return -1;
++	}
++
++	return 0;
++}
++
+ void insn_to_reloc_sym_addend(struct section *sec, unsigned long offset,
+ 			      struct reloc *reloc)
+ {
+@@ -374,7 +406,6 @@ static int read_symbols(struct elf *elf)
+ 	struct list_head *entry;
+ 	struct rb_node *pnode;
+ 	int symbols_nr, i;
+-	char *coldstr;
+ 	Elf_Data *shndx_data = NULL;
+ 	Elf32_Word shndx;
+ 
+@@ -456,37 +487,20 @@ static int read_symbols(struct elf *elf)
+ 	/* Create parent/child links for any cold subfunctions */
+ 	list_for_each_entry(sec, &elf->sections, list) {
+ 		list_for_each_entry(sym, &sec->symbol_list, list) {
+-			char pname[MAX_NAME_LEN + 1];
+-			size_t pnamelen;
+ 			if (sym->type != STT_FUNC)
+ 				continue;
+ 
+-			if (sym->pfunc == NULL)
++			if (!sym->pfunc)
+ 				sym->pfunc = sym;
+ 
+-			if (sym->cfunc == NULL)
++			if (!sym->cfunc)
+ 				sym->cfunc = sym;
+ 
+-			coldstr = strstr(sym->name, ".cold");
+-			if (!coldstr)
+-				continue;
+-
+-			pnamelen = coldstr - sym->name;
+-			if (pnamelen > MAX_NAME_LEN) {
+-				WARN("%s(): parent function name exceeds maximum length of %d characters",
+-				     sym->name, MAX_NAME_LEN);
++			if (find_unsuffixed_func(elf, sym, ".cold", &pfunc))
+ 				return -1;
+-			}
+ 
+-			strncpy(pname, sym->name, pnamelen);
+-			pname[pnamelen] = '\0';
+-			pfunc = find_symbol_by_name(elf, pname);
+-
+-			if (!pfunc) {
+-				WARN("%s(): can't find parent function",
+-				     sym->name);
+-				return -1;
+-			}
++			if (!pfunc)
++				continue;
+ 
+ 			sym->pfunc = pfunc;
+ 			pfunc->cfunc = sym;
+-- 
+2.30.0
+
+From f21aff761d1a119cf1ede392a5be3b2c811f461b Mon Sep 17 00:00:00 2001
+From: Josh Poimboeuf <jpoimboe@redhat.com>
+Date: Thu, 14 Jan 2021 12:49:47 -0600
+Subject: [PATCH] objtool: Add CONFIG_CFI_CLANG support
+
+The upcoming CONFIG_CFI_CLANG support uses -fsanitize=cfi, the
+non-canonical version of which hijacks function entry by changing
+function relocation references to point to an intermediary jump table.
+
+For example:
+
+  Relocation section '.rela.discard.func_stack_frame_non_standard' at offset 0x37e018 contains 6 entries:
+      Offset             Info             Type               Symbol's Value  Symbol's Name + Addend
+  0000000000000000  0002944700000002 R_X86_64_PC32          00000000000023f0 do_suspend_lowlevel + 0
+  0000000000000008  0003c11900000001 R_X86_64_64            0000000000000008 xen_cpuid$e69bc59f4fade3b6f2b579b3934137df.cfi_jt + 0
+  0000000000000010  0003980900000001 R_X86_64_64            0000000000000060 machine_real_restart.cfi_jt + 0
+  0000000000000018  0003962b00000001 R_X86_64_64            0000000000000e18 kretprobe_trampoline.cfi_jt + 0
+  0000000000000020  000028f300000001 R_X86_64_64            0000000000000000 .rodata + 12
+  0000000000000028  000349f400000001 R_X86_64_64            0000000000000018 __crash_kexec.cfi_jt + 0
+
+  0000000000000060 <machine_real_restart.cfi_jt>:
+    60: e9 00 00 00 00          jmpq   65 <machine_real_restart.cfi_jt+0x5>
+                        61: R_X86_64_PLT32      machine_real_restart-0x4
+    65: cc                      int3
+    66: cc                      int3
+    67: cc                      int3
+
+This breaks objtool vmlinux validation in many ways, including static
+call site detection and the STACK_FRAME_NON_STANDARD() macro.
+
+Fix it by converting those relocations' symbol references back to their
+original non-jump-table versions.  Note this doesn't change the actual
+relocations in the object itself, it just changes objtool's view of
+them.
+
+Reported-by: Sedat Dilek <sedat.dilek@gmail.com>
+Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
+Signed-off-by: torvic9 <torvic9@mailbox.org>
+---
+ tools/objtool/elf.c | 28 ++++++++++++++++++++++++++++
+ tools/objtool/elf.h |  2 +-
+ 2 files changed, 29 insertions(+), 1 deletion(-)
+
+diff --git a/tools/objtool/elf.c b/tools/objtool/elf.c
+index 6d248a19e..142b2ce49 100644
+--- a/tools/objtool/elf.c
++++ b/tools/objtool/elf.c
+@@ -382,6 +382,11 @@ static int read_sections(struct elf *elf)
+ 		}
+ 		sec->len = sec->sh.sh_size;
+ 
++		/* Detect -fsanitize=cfi related sections */
++		if (!strcmp(sec->name, ".text.__cfi_check") ||
++		    !strncmp(sec->name, ".text..L.cfi.jumptable", 22))
++			sec->cfi_jt = true;
++
+ 		list_add_tail(&sec->list, &elf->sections);
+ 		elf_hash_add(elf->section_hash, &sec->hash, sec->idx);
+ 		elf_hash_add(elf->section_name_hash, &sec->name_hash, str_hash(sec->name));
+@@ -613,6 +618,29 @@ static int read_relocs(struct elf *elf)
+ 				return -1;
+ 			}
+ 
++			/*
++			 * Deal with -fsanitize=cfi (CONFIG_CFI_CLANG), which
++			 * hijacks function entry by arbitrarily changing a lot
++			 * of relocation symbol references to refer to an
++			 * intermediate jump table.  Undo that conversion so
++			 * objtool can make sense of things.
++			 */
++			if (reloc->sym->sec->cfi_jt) {
++				struct symbol *func, *sym;
++
++				if (reloc->sym->type == STT_SECTION)
++					sym = find_func_by_offset(reloc->sym->sec,
++								  reloc->addend);
++				else
++					sym = reloc->sym;
++
++				if (find_unsuffixed_func(elf, sym, ".cfi_jt", &func))
++					return -1;
++
++				if (func)
++					reloc->sym = func;
++			}
++
+ 			elf_add_reloc(elf, reloc);
+ 			nr_reloc++;
+ 		}
+diff --git a/tools/objtool/elf.h b/tools/objtool/elf.h
+index e6890cc70..bcc524d73 100644
+--- a/tools/objtool/elf.h
++++ b/tools/objtool/elf.h
+@@ -39,7 +39,7 @@ struct section {
+ 	char *name;
+ 	int idx;
+ 	unsigned int len;
+-	bool changed, text, rodata, noinstr;
++	bool changed, text, rodata, noinstr, cfi_jt;
+ };
+ 
+ struct symbol {
+-- 
+2.30.0
+
+From 06c551bc68097c1aa22c90777487ea79a6cdd1d1 Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Thu, 19 Nov 2020 11:26:52 -0600
 Subject: [PATCH] x86/xen: Support objtool validation in xen-asm.S
@@ -751,6 +968,8 @@ ignore a file.  File-level ignores won't work when validating vmlinux.o.
 Tweak the ELF metadata and unwind hints to allow objtool to follow the
 code.
 
+Cc: Boris Ostrovsky <boris.ostrovsky@oracle.com>
+Cc: Juergen Gross <jgross@suse.com>
 Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
 Signed-off-by: torvic9 <torvic9@mailbox.org>
 ---
@@ -877,7 +1096,7 @@ index 1cb0e84b9..a05e80b55 100644
 -- 
 2.30.0
 
-From b62837092140f06925253cac2eaf3e4f79e52105 Mon Sep 17 00:00:00 2001
+From 4165a544ac3a61a32ae0f89fd73c79aaf04b7582 Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Thu, 19 Nov 2020 19:38:06 -0600
 Subject: [PATCH] x86/xen: Support objtool vmlinux.o validation in xen-head.S
@@ -891,6 +1110,8 @@ gets mapped to the hypervisor.  Make it more palatable to objtool by
 making each hypervisor function a true empty function, with nops and a
 return.
 
+Cc: Boris Ostrovsky <boris.ostrovsky@oracle.com>
+Cc: Juergen Gross <jgross@suse.com>
 Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
 Signed-off-by: torvic9 <torvic9@mailbox.org>
 ---
@@ -916,7 +1137,7 @@ index 2d7c8f34f..cb6538ae2 100644
 -- 
 2.30.0
 
-From 89a4febfd7bfeba92581457bc153b39baae68598 Mon Sep 17 00:00:00 2001
+From 2cc2e766f9bbebdd64d807424b810392efb71e70 Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Thu, 19 Nov 2020 20:30:23 -0600
 Subject: [PATCH] x86/xen/pvh: Convert indirect jump to retpoline
@@ -925,6 +1146,8 @@ It's kernel policy to not have (unannotated) indirect jumps because of
 Spectre v2.  This one's probably harmless, but better safe than sorry.
 Convert it to a retpoline.
 
+Cc: Boris Ostrovsky <boris.ostrovsky@oracle.com>
+Cc: Juergen Gross <jgross@suse.com>
 Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
 Signed-off-by: torvic9 <torvic9@mailbox.org>
 ---
@@ -955,7 +1178,7 @@ index 43b4d8648..d87cebd08 100644
 -- 
 2.30.0
 
-From 0dfb760c74d1ed151a3822d2bd32c89e1e9a9bd8 Mon Sep 17 00:00:00 2001
+From 88ecdf0b85a2a31e1d277bc5be51608cccc5bf7b Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Tue, 17 Nov 2020 18:37:14 -0600
 Subject: [PATCH] x86/ftrace: Support objtool vmlinux.o validation in
@@ -968,6 +1191,7 @@ a proper function state results in a stack state mismatch.
 return_to_handler() is actually quite normal despite the underlying
 magic.  Just annotate it as a normal function.
 
+Cc: Steven Rostedt <rostedt@goodmis.org>
 Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
 Signed-off-by: torvic9 <torvic9@mailbox.org>
 ---
@@ -975,10 +1199,10 @@ Signed-off-by: torvic9 <torvic9@mailbox.org>
  1 file changed, 2 insertions(+), 3 deletions(-)
 
 diff --git a/arch/x86/kernel/ftrace_64.S b/arch/x86/kernel/ftrace_64.S
-index eea49da97..b0a5b686d 100644
+index 1bf568d90..7c273846c 100644
 --- a/arch/x86/kernel/ftrace_64.S
 +++ b/arch/x86/kernel/ftrace_64.S
-@@ -323,8 +323,7 @@ SYM_FUNC_START(ftrace_graph_caller)
+@@ -334,8 +334,7 @@ SYM_FUNC_START(ftrace_graph_caller)
  	retq
  SYM_FUNC_END(ftrace_graph_caller)
  
@@ -988,7 +1212,7 @@ index eea49da97..b0a5b686d 100644
  	subq  $24, %rsp
  
  	/* Save the return values */
-@@ -339,5 +338,5 @@ SYM_CODE_START(return_to_handler)
+@@ -350,5 +349,5 @@ SYM_CODE_START(return_to_handler)
  	movq (%rsp), %rax
  	addq $24, %rsp
  	JMP_NOSPEC rdi
@@ -998,7 +1222,7 @@ index eea49da97..b0a5b686d 100644
 -- 
 2.30.0
 
-From 6693e26cd6ccdd98b286887962adc71df8e52486 Mon Sep 17 00:00:00 2001
+From 7fc81f2c0dca16ea2559e57996e282ffe087da47 Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Thu, 19 Nov 2020 11:03:42 -0600
 Subject: [PATCH] x86/acpi: Convert indirect jump to retpoline
@@ -1007,6 +1231,9 @@ It's kernel policy to not have (unannotated) indirect jumps because of
 Spectre v2.  This one's probably harmless, but better safe than sorry.
 Convert it to a retpoline.
 
+Cc: "Rafael J. Wysocki" <rjw@rjwysocki.net>
+Cc: Len Brown <len.brown@intel.com>
+Cc: Pavel Machek <pavel@ucw.cz>
 Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
 Signed-off-by: torvic9 <torvic9@mailbox.org>
 ---
@@ -1014,7 +1241,7 @@ Signed-off-by: torvic9 <torvic9@mailbox.org>
  1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/arch/x86/kernel/acpi/wakeup_64.S b/arch/x86/kernel/acpi/wakeup_64.S
-index c8daa92f3..ca3eb310b 100644
+index 5d3a0b8fd..0b371580e 100644
 --- a/arch/x86/kernel/acpi/wakeup_64.S
 +++ b/arch/x86/kernel/acpi/wakeup_64.S
 @@ -7,6 +7,7 @@
@@ -1037,7 +1264,7 @@ index c8daa92f3..ca3eb310b 100644
 -- 
 2.30.0
 
-From 7a974d90aa40672ca33271f482e94d9dfd170579 Mon Sep 17 00:00:00 2001
+From 741ffbf0bed4e6c92ccde226cbe4a83073939380 Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Thu, 19 Nov 2020 11:10:31 -0600
 Subject: [PATCH] x86/acpi: Support objtool validation in wakeup_64.S
@@ -1045,9 +1272,12 @@ Subject: [PATCH] x86/acpi: Support objtool validation in wakeup_64.S
 The OBJECT_FILES_NON_STANDARD annotation is used to tell objtool to
 ignore a file.  File-level ignores won't work when validating vmlinux.o.
 
-Instead, tell obtjool to ignore do_suspend_lowlevel() directly with the
+Instead, tell objtool to ignore do_suspend_lowlevel() directly with the
 STACK_FRAME_NON_STANDARD annotation.
 
+Cc: "Rafael J. Wysocki" <rjw@rjwysocki.net>
+Cc: Len Brown <len.brown@intel.com>
+Cc: Pavel Machek <pavel@ucw.cz>
 Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
 Signed-off-by: torvic9 <torvic9@mailbox.org>
 ---
@@ -1066,7 +1296,7 @@ index f1bb57b0e..cf340d859 100644
  obj-$(CONFIG_ACPI)		+= boot.o
  obj-$(CONFIG_ACPI_SLEEP)	+= sleep.o wakeup_$(BITS).o
 diff --git a/arch/x86/kernel/acpi/wakeup_64.S b/arch/x86/kernel/acpi/wakeup_64.S
-index ca3eb310b..181cc14ea 100644
+index 0b371580e..cc6846b35 100644
 --- a/arch/x86/kernel/acpi/wakeup_64.S
 +++ b/arch/x86/kernel/acpi/wakeup_64.S
 @@ -1,6 +1,7 @@
@@ -1088,7 +1318,7 @@ index ca3eb310b..181cc14ea 100644
 -- 
 2.30.0
 
-From d3389bc83538534bcb1a64e392a8dc74aa26d4ec Mon Sep 17 00:00:00 2001
+From 2ebd6c70153799f77789376566e779bc9e0ce270 Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Thu, 19 Nov 2020 11:14:04 -0600
 Subject: [PATCH] x86/power: Convert indirect jumps to retpolines
@@ -1097,6 +1327,8 @@ It's kernel policy to not have (unannotated) indirect jumps because of
 Spectre v2.  These are probably harmless, but better safe than sorry.
 Convert them to retpolines.
 
+Cc: "Rafael J. Wysocki" <rjw@rjwysocki.net>
+Cc: Pavel Machek <pavel@ucw.cz>
 Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
 Signed-off-by: torvic9 <torvic9@mailbox.org>
 ---
@@ -1136,7 +1368,7 @@ index 7918b8415..24d971911 100644
 -- 
 2.30.0
 
-From d0ac4c7301c16110574753accd6e5c88e5b04b50 Mon Sep 17 00:00:00 2001
+From 1e29961ab5704f737a115b752be2bafc41c88bb3 Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Thu, 19 Nov 2020 11:16:43 -0600
 Subject: [PATCH] x86/power: Move restore_registers() to top of the file
@@ -1157,6 +1389,8 @@ $ size /tmp/hibernate_asm_64.before.o /tmp/hibernate_asm_64.after.o
    4415	      0	      0	   4415	   113f	/tmp/hibernate_asm_64.before.o
     524	      0	      0	    524	    20c	/tmp/hibernate_asm_64.after.o
 
+Cc: "Rafael J. Wysocki" <rjw@rjwysocki.net>
+Cc: Pavel Machek <pavel@ucw.cz>
 Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
 Signed-off-by: torvic9 <torvic9@mailbox.org>
 ---
@@ -1273,7 +1507,7 @@ index 24d971911..4ca6d68b0 100644
 -- 
 2.30.0
 
-From e518ac0801cd99de35361298409c82b6920887c4 Mon Sep 17 00:00:00 2001
+From 2deea4f68fe5b211c6138ba8a76e1d0f26aba164 Mon Sep 17 00:00:00 2001
 From: Josh Poimboeuf <jpoimboe@redhat.com>
 Date: Thu, 19 Nov 2020 11:21:51 -0600
 Subject: [PATCH] x86/power: Support objtool validation in hibernate_asm_64.S
@@ -1285,6 +1519,8 @@ Instead, convert restore_image() and core_restore_code() to be ELF
 functions.  Their code is conventional enough for objtool to be able to
 understand them.
 
+Cc: "Rafael J. Wysocki" <rjw@rjwysocki.net>
+Cc: Pavel Machek <pavel@ucw.cz>
 Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
 Signed-off-by: torvic9 <torvic9@mailbox.org>
 ---
